@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/Kiol-V/dsh-agent-tool-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/Kiol-V/dsh-agent-tool-filter/actions/workflows/ci.yml)
 
+English version: see [README.en.md](<README.en.md>).
+
 Per-agent фильтр инструментов **основного агента** (ведущего задачу) для DeepSeek Harness.
 
 Цель — независимые наборы tools: выбранные пресеты работают с обрезанным набором

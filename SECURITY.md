@@ -1,5 +1,7 @@
 # Политика безопасности dsh-agent-tool-filter
 
+English version: see [SECURITY.en.md](<SECURITY.en.md>).
+
 ## Поддерживаемые версии
 
 Исправления безопасности приоритетны для актуальной версии проекта.

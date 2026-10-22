@@ -1,5 +1,7 @@
 # Contributing to `dsh-agent-tool-filter`
 
+Русская версия: см. [CONTRIBUTING.md](<CONTRIBUTING.md>).
+
 Thank you for your interest in contributing to the project! This guide covers how to propose changes.
 
 ## Requirements

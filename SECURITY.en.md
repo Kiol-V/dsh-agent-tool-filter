@@ -1,5 +1,7 @@
 # Security Policy — dsh-agent-tool-filter
 
+Русская версия: см. [SECURITY.md](<SECURITY.md>).
+
 ## Supported versions
 
 Security fixes are prioritized for the current release of the project.

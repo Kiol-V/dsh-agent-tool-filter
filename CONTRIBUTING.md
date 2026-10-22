@@ -1,5 +1,7 @@
 # Участие в проекте `dsh-agent-tool-filter`
 
+English version: see [CONTRIBUTING.en.md](<CONTRIBUTING.en.md>).
+
 Спасибо за интерес к проекту! Это руководство описывает, как предложить изменения.
 
 ## Требования

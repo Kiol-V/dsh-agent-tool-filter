@@ -1,5 +1,7 @@
 # Configuring Tool Filtering — User Guide
 
+Русская версия: см. [filtering-guide.md](<filtering-guide.md>).
+
 This guide covers installation, configuration, verification, and rollback. It describes plugin **1.0.0** for **DSH 0.2.1**.
 
 ## What the plugin does
