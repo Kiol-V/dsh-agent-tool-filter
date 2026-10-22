@@ -1,0 +1,61 @@
+{
+  "name": "dsh-agent-tool-filter",
+  "version": "1.0.0",
+  "description": "Per-agent tool filter for the main agent (orchestrator): restricts tools per preset via ctx.tools.restrict() in the root Agent scope on agent/created. Preset-to-profile matrix, filter profiles, name validation, hidden-schema diagnostics. Subagents keep the full toolset.",
+  "icon": "./icon.svg",
+  "type": "module",
+  "main": "./plugin.mjs",
+  "exports": {
+    ".": "./plugin.mjs",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "plugin.mjs",
+    "cordis.patch.yml",
+    "lib/",
+    "client/",
+    "scripts/",
+    "docs/",
+    "test/",
+    "icon.svg",
+    "locale/*.json",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "LICENSE.en",
+    "SECURITY.md",
+    "SECURITY.en.md",
+    "CONTRIBUTING.md",
+    "CONTRIBUTING.en.md"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "tools",
+    "tool-filter"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-api-remotes"]
+    }
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

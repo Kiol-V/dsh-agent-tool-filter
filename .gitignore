@@ -1,0 +1,12 @@
+# Публикация и сборка
+node_modules/
+dist/
+.npm-cache/
+
+# Worktree-потоки (N0027)
+.agents/
+
+# Системный мусор
+.DS_Store
+Thumbs.db
+*.log
