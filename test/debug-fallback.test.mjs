@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { apply } from '../plugin.mjs'
-import { makeDebugLog } from '../lib/debuglog.mjs'
+import { makeDebugLog, resolveLogPath } from '../lib/debuglog.mjs'
 import { readState } from '../lib/restriction.mjs'
 
 const config = {
@@ -120,6 +120,47 @@ test('debug logger is disabled by default (option off, no env)', () => {
     if (previous === undefined) delete process.env.ATF_DEBUG_LOG
     else process.env.ATF_DEBUG_LOG = previous
     rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('debug logger defaults to <DSH_HOME>/logs/agent-tool-filter-debug.log', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'atf-home-'))
+  const previousHome = process.env.DSH_HOME
+  const previousEnv = process.env.ATF_DEBUG_LOG
+  try {
+    delete process.env.ATF_DEBUG_LOG
+    process.env.DSH_HOME = home
+    makeDebugLog({ enabled: true })('test', 'dsh home message')
+    const filePath = path.join(home, 'logs', 'agent-tool-filter-debug.log')
+    assert.equal(existsSync(filePath), true)
+    const lines = readFileSync(filePath, 'utf8').trim().split(/\r?\n/)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0], /dsh home message$/)
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    if (previousEnv === undefined) delete process.env.ATF_DEBUG_LOG
+    else process.env.ATF_DEBUG_LOG = previousEnv
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('resolveLogPath: env overrides, default follows <DSH_HOME>/logs', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'atf-home-'))
+  const previousHome = process.env.DSH_HOME
+  const previousEnv = process.env.ATF_DEBUG_LOG
+  try {
+    process.env.ATF_DEBUG_LOG = path.join(home, 'custom.log')
+    assert.equal(resolveLogPath(), path.join(home, 'custom.log'), 'env path wins')
+    delete process.env.ATF_DEBUG_LOG
+    process.env.DSH_HOME = home
+    assert.equal(resolveLogPath(), path.join(home, 'logs', 'agent-tool-filter-debug.log'), 'default under DSH_HOME')
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    if (previousEnv === undefined) delete process.env.ATF_DEBUG_LOG
+    else process.env.ATF_DEBUG_LOG = previousEnv
+    rmSync(home, { recursive: true, force: true })
   }
 })
 

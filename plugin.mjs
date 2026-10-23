@@ -1,4 +1,4 @@
-// dsh-agent-tool-filter v1.0.0 — per-agent фильтр инструментов основного агента.
+// dsh-agent-tool-filter v1.0.1 — per-agent фильтр инструментов основного агента.
 // Тонкая точка входа: собирает модули lib/ (конфиг, ограничения, обработка агентов,
 // диагностика, логгер). Механика restrict НЕ меняется.
 //
@@ -28,7 +28,9 @@ import {
   deletePreset,
   importPack,
   registerManageContext,
+  removeToolName,
   rescan,
+  setDebugLog,
   setEnabled,
   setLanguage,
   setProfile,
@@ -57,10 +59,12 @@ const remoteContribution = {
       members: [
         { kind: 'method', name: 'status', signature: 'status(): object' },
         { kind: 'method', name: 'setEnabled', signature: 'setEnabled(enabled: boolean): Promise<object>' },
+        { kind: 'method', name: 'setDebugLog', signature: 'setDebugLog(enabled: boolean): Promise<object>' },
         { kind: 'method', name: 'setLanguage', signature: 'setLanguage(language: string): Promise<object>' },
         { kind: 'method', name: 'bindPreset', signature: 'bindPreset(presetId: string, profileName: string): Promise<object>' },
         { kind: 'method', name: 'unbindPreset', signature: 'unbindPreset(presetId: string): Promise<object>' },
         { kind: 'method', name: 'setProfile', signature: 'setProfile(name: string, profile: object): Promise<object>' },
+        { kind: 'method', name: 'removeToolName', signature: 'removeToolName(toolName: string): Promise<object>' },
         { kind: 'method', name: 'deleteProfile', signature: 'deleteProfile(name: string): Promise<object>' },
         { kind: 'method', name: 'importPack', signature: 'importPack(packId: string): Promise<object>' },
         { kind: 'method', name: 'copyPreset', signature: 'copyPreset(presetId: string, newName: string, display?: { name?: string, description?: string }): Promise<object>' },
@@ -96,10 +100,12 @@ export async function provideRemoteApi (ctx, cfg, log) {
       status: () => statusFull(cfg, ctx),
       scanTools: () => scanTools(cfg, ctx),
       setEnabled: enabled => setEnabled(ctx, enabled),
+      setDebugLog: enabled => setDebugLog(ctx, enabled),
       setLanguage: language => setLanguage(ctx, language),
       bindPreset: (presetId, profileName) => bindPreset(ctx, presetId, profileName),
       unbindPreset: presetId => unbindPreset(ctx, presetId),
       setProfile: (name, profile) => setProfile(ctx, name, profile),
+      removeToolName: toolName => removeToolName(ctx, toolName),
       deleteProfile: name => deleteProfile(ctx, name),
       importPack: packId => importPack(ctx, packId),
       copyPreset: (presetId, newName, display) => copyPreset(ctx, presetId, newName, display),
@@ -144,7 +150,7 @@ export async function provideRemoteApi (ctx, cfg, log) {
 
 export async function apply (ctx, config) {
   const log = makeLogger(ctx)
-  const version = '1.0.0'
+  const version = '1.0.1'
   let initialRoots = null
   try { initialRoots = ctx.get('agents')?.roots?.() } catch { /* logged as unavailable below */ }
   let composedPresetType = 'undefined'
@@ -162,7 +168,7 @@ export async function apply (ctx, config) {
 
   const sourceByAgent = new WeakMap()
   const presetByAgent = new WeakMap()
-  const { handle, rootsOf } = makeAgentFilter(ctx, cfg, log, dlog, presetByAgent)
+  const { handle, rootsOf, disposeTimers } = makeAgentFilter(ctx, cfg, log, dlog, presetByAgent)
   const reapply = () => {
     const roots = rootsOf()
     dlog('reapply', `roots ${roots === null ? 'null' : roots.length}`)
@@ -218,6 +224,20 @@ export async function apply (ctx, config) {
     else clearRestriction(agent)
   })
   if (typeof offPresetSelected === 'function') disposers.push(offPresetSelected)
+  const offCompaction = ctx.on('session/event', (session, event) => {
+    if (event?.type !== 'compaction/end' || event?.data?.error !== undefined) return
+    dlog('event', `compaction/end: session=${session?.id ?? 'undefined'} — пере-оценка режима`)
+    let agent
+    try { agent = ctx.get('agents')?.get?.(session.id) } catch { /* roots fallback */ }
+    if (!agent) {
+      const roots = rootsOf()
+      if (roots !== null) agent = roots.find(root => root?.id === session.id)
+    }
+    if (!agent) return
+    if (cfg.enabled) handle(agent, 'compact')
+    else clearRestriction(agent)
+  })
+  if (typeof offCompaction === 'function') disposers.push(offCompaction)
   const offReload = ctx.on('app-boot/config-reload', reapply)
   if (typeof offReload === 'function') disposers.push(offReload)
 
@@ -238,6 +258,7 @@ export async function apply (ctx, config) {
   // Контракт v4 (K5): async apply возвращает disposer — подписки снимаются при
   // выгрузке плагина; маски живых агентов снимает clearRestriction по конфигу.
   return () => {
+    disposeTimers()
     for (const dispose of disposers) {
       try { dispose() } catch { /* подписка уже снята контекстом */ }
     }

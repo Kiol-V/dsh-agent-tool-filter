@@ -190,7 +190,19 @@ assert.ok(editorHtml.includes('Enabled (available)'), 'allow mode must label the
 assert.ok(editorHtml.includes('Disabled, can be enabled'), 'allow mode must label the unchecked group')
 assert.ok(editorHtml.includes('Not controllable — always available'), 'editor must render the locked block')
 assert.ok(editorHtml.includes('run_code'), 'locked block must list reserved names')
-assert.ok(editorHtml.includes('limiter rejects the mask'), 'selected non-controllable names must carry a warning')
+assert.ok(editorHtml.includes('the platform does not allow disabling it'), 'locked block must explain why the name is fixed')
+assert.ok(editorHtml.includes('ghost'), 'unknown selected names must render with a checkbox in the main lists')
+assert.ok(editorHtml.includes('not found in the tool registry'), 'unknown selected names must carry a typo note')
+assert.ok(!editorHtml.includes('limiter rejects the mask'), 'no selected locked names in this fixture — no limiter warning')
+
+// Выбранное locked-имя («ограничитель отклонит маску») — с чекбоксом в общем списке.
+const lockedPickedHtml = flatOf(renderToString(React.createElement(plugin.ProfileEditor, {
+  name: 'custom', profile: { mode: 'deny', tools: ['team_x'] }, controllableTools: ['read'],
+  lockedTools: ['run_code', 'team_x'], busy: false,
+  onSave: noop, onCancel: noop
+})))
+assert.ok(lockedPickedHtml.includes('limiter rejects the mask'), 'selected locked names must warn about the limiter')
+assert.ok(lockedPickedHtml.includes('<input type="checkbox" checked=""'), 'selected locked names must render as checked checkboxes')
 
 const newEditorHtml = flatOf(renderToString(React.createElement(plugin.ProfileEditor, {
   name: 'fresh', profile: { mode: 'deny', tools: [] }, controllableTools: ['read'], busy: false, isNew: true,
@@ -213,6 +225,20 @@ const scanUnavailableHtml = flatOf(renderToString(React.createElement(plugin.Sca
   report: { available: false, report: {} }
 })))
 assert.ok(scanUnavailableHtml.includes('registry unavailable'), 'unavailable registry must show one honest line instead of a flood')
+
+// 5c. Предупреждения: ❌-варн несёт кнопку «Убрать имя из профиля», ⚠ — без кнопки.
+const warningsHtml = flatOf(renderToString(React.createElement(plugin.WarningsSection, {
+  items: [
+    { type: 'locked', text: '⚠ нельзя отключить (1): run_code — всегда доступны агенту' },
+    { type: 'unknown', text: '❌ ghost_tool — не найдено · профили: custom', tool: 'ghost_tool', profiles: ['custom'] }
+  ],
+  busy: false,
+  onRemoveName: () => {}
+})))
+assert.ok(warningsHtml.includes('ghost_tool'), 'warnings must list the unknown name')
+assert.ok(warningsHtml.includes('Remove name from profile'), 'unknown warnings must offer the remove button')
+assert.ok(warningsHtml.indexOf('Remove name from profile') > warningsHtml.indexOf('ghost_tool'), 'the button must sit on the unknown warning')
+assert.ok(!warningsHtml.slice(0, warningsHtml.indexOf('ghost_tool')).includes('Remove name from profile'), 'locked warnings must carry no remove button')
 
 const packsHtml = flatOf(renderToString(React.createElement(plugin.PacksSection, {
   packs: sampleStatus.packs, busy: false, onImport: noop

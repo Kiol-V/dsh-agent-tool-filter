@@ -398,11 +398,16 @@ export function ProfileEditor ({ name, profile, controllableTools, lockedTools, 
   const [mode, setMode] = useState(profile.mode)
   const [selected, setSelected] = useState(() => new Set(profile.tools))
   const controllable = new Set(controllableTools ?? [])
-  const [order] = useState(() => [...controllable].sort())
-  const [lockedList] = useState(() => [...new Set([
-    ...(lockedTools ?? []),
-    ...profile.tools.filter(tool => !controllable.has(tool))
+  const locked = new Set(lockedTools ?? [])
+  // Всё выбранное в профиле показывается с чекбоксом, включая проблемные имена
+  // (опечатки, удалённые плагины, «платформа не даёт отключить»): снятие отметки +
+  // сохранение убирает имя из профиля, и при следующем открытии строки уже нет.
+  const [order] = useState(() => [...new Set([
+    ...controllable,
+    ...profile.tools
   ])].sort())
+  // Справочный блок — только платформенные имена, НЕ выбранные в профиле.
+  const [lockedList] = useState(() => [...locked].filter(tool => !profile.tools.includes(tool)).sort())
   const checkedList = order.filter(tool => selected.has(tool))
   const uncheckedList = order.filter(tool => !selected.has(tool))
   const toggle = tool => setSelected(previous => {
@@ -415,6 +420,13 @@ export function ProfileEditor ({ name, profile, controllableTools, lockedTools, 
     <label key={tool} className="atf-check">
       <input type="checkbox" checked={selected.has(tool)} onChange={() => toggle(tool)} />{' '}
       <code className="atf-code">{tool}</code>
+      {!controllable.has(tool) && (
+        <span className="atf-locked">
+          {locked.has(tool)
+            ? (selected.has(tool) ? t('lockedSelected') : t('lockedFixed'))
+            : t('unknownSelected')}
+        </span>
+      )}
     </label>
   )
   const editKind = kind ?? (isNew ? 'create' : 'edit')
@@ -459,7 +471,7 @@ export function ProfileEditor ({ name, profile, controllableTools, lockedTools, 
             {lockedList.map(tool => (
               <div key={tool} className="atf-check">
                 <code className="atf-code">{tool}</code>
-                <span className="atf-locked">{selected.has(tool) ? t('lockedSelected') : t('lockedFixed')}</span>
+                <span className="atf-locked">{t('lockedFixed')}</span>
               </div>
             ))}
           </div>
@@ -588,6 +600,30 @@ export function ScanSection ({ report, t = makeT('en') }) {
   )
 }
 
+// --- Предупреждения: ❌-варны («не найдено») несут кнопку «Убрать имя из
+// профиля» — быстрый фикс опечатки/удалённого плагина без редактора профиля. ---
+export function WarningsSection ({ items, busy, t = makeT('en'), onRemoveName }) {
+  if (!Array.isArray(items) || items.length === 0) return null
+  return (
+    <section className="atf-group" aria-label={t('warningsTitle')}>
+      <div className="atf-group-head">
+        <h4 className="atf-group-title">{t('warningsTitle')}</h4>
+        <span className="atf-counter">{items.length}</span>
+      </div>
+      {items.map(item => (
+        <div key={item.text} className="atf-alert" role="alert">
+          <span>{item.text}</span>
+          {item.type === 'unknown' && (
+            <button type="button" className="atf-btn atf-outline atf-sm" disabled={busy} onClick={() => onRemoveName(item.tool)}>
+              {t('removeName')}
+            </button>
+          )}
+        </div>
+      ))}
+    </section>
+  )
+}
+
 function AgentToolFilterCard ({ service }) {
   const [status, setStatus] = useState(null)
   const [editing, setEditing] = useState(null)
@@ -639,6 +675,11 @@ function AgentToolFilterCard ({ service }) {
     t('statusSaved'), 'header', applyStatus
   )
 
+  const setDebugLog = next => runAction(
+    () => callRemote(service, 'setDebugLog', next),
+    t('statusSaved'), 'header', applyStatus
+  )
+
   const changeLanguage = language => runAction(
     () => callRemote(service, 'setLanguage', language),
     t('statusSaved'), 'header', applyStatus
@@ -670,6 +711,11 @@ function AgentToolFilterCard ({ service }) {
       applyStatus(value)
       setEditing(null)
     }
+  )
+
+  const removeToolName = toolName => runAction(
+    () => callRemote(service, 'removeToolName', toolName),
+    t('removeNameDone'), 'warnings', applyStatus
   )
 
   // editing = { name, profile | null, kind: 'create' | 'edit' | 'copy' }: модалка
@@ -711,6 +757,9 @@ function AgentToolFilterCard ({ service }) {
   const agents = Array.isArray(status?.agents) ? status.agents : []
   const hiddenSchemas = agents.reduce((total, agent) => total + (Number(agent?.hidden) || 0), 0)
   const warnings = Array.isArray(status?.warnings) ? status.warnings : []
+  const warningItems = Array.isArray(status?.warningItems)
+    ? status.warningItems
+    : warnings.map(text => ({ type: 'plain', text }))
 
   return (
     <div className="atf-card">
@@ -733,6 +782,18 @@ function AgentToolFilterCard ({ service }) {
             checked={status?.enabled === true}
             onChange={setEnabled}
             label={t('enabled')}
+            disabled={status === null || busy}
+          />
+        </div>
+        <div className="atf-row">
+          <div className="atf-row-text">
+            <span className="atf-row-label">{t('debugLog')}</span>
+            <span className="atf-row-desc">{t('debugLogDesc')}</span>
+          </div>
+          <Switch
+            checked={status?.debugLog === true}
+            onChange={setDebugLog}
+            label={t('debugLog')}
             disabled={status === null || busy}
           />
         </div>
@@ -774,15 +835,7 @@ function AgentToolFilterCard ({ service }) {
 
       <ScanSection report={status?.report ?? null} t={t} />
 
-      {warnings.length > 0 && (
-        <section className="atf-group" aria-label={t('warningsTitle')}>
-          <div className="atf-group-head">
-            <h4 className="atf-group-title">{t('warningsTitle')}</h4>
-            <span className="atf-counter">{warnings.length}</span>
-          </div>
-          {warnings.map(warning => <div key={warning} className="atf-alert" role="alert">{warning}</div>)}
-        </section>
-      )}
+      <WarningsSection items={warningItems} busy={busy} t={t} onRemoveName={removeToolName} />
 
       <section className="atf-group" aria-label={t('diagTitle')}>
         <div className="atf-group-head">
@@ -799,6 +852,7 @@ function AgentToolFilterCard ({ service }) {
             <div>{t('diagLocale')}: {presetTranslate ? 'ok' : 'missing'}</div>
             <div>{t('diagLang')}: {langSetting} → {resolveLang(langSetting, platformLang())}</div>
             <div>{t('diagVersion')}: {status?.version ?? '—'}</div>
+            <div>{t('diagLogPath')}: <code className="atf-code">{status?.debugLogPath ?? '—'}</code></div>
             <div>presets: {status?.presetIds?.length ?? 0} · profiles: {Object.keys(status?.profiles ?? {}).length} · tools: {status?.report?.names?.length ?? 0}</div>
           </div>
         )}

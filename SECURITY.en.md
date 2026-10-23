@@ -4,12 +4,13 @@
 
 ## Supported versions
 
-Security fixes are prioritized for the current release of the project.
+Only the latest release of the project is supported: security fixes ship in it, older
+versions are not serviced — please update to the latest release.
 
 | Version | Security support |
 |---|---|
-| `0.2.0` and above | supported for released versions |
-| Below `0.2.0` | security support is not stated |
+| Latest release | supported |
+| Older releases | security support is not stated |
 
 If you are unsure whether a version is affected, report against the latest release and include the exact version or commit you tested.
 

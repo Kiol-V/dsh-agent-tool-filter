@@ -2,16 +2,17 @@ import assert from 'node:assert/strict'
 import { clientDescriptors, remoteDescriptors, statusDescriptor } from '../lib/remote-descriptors.mjs'
 import { apply } from '../plugin.mjs'
 
-const expected = ['setEnabled', 'setLanguage', 'bindPreset', 'unbindPreset', 'setProfile', 'deleteProfile', 'importPack', 'copyPreset', 'deletePreset', 'rescan']
+const expected = ['setEnabled', 'setDebugLog', 'setLanguage', 'bindPreset', 'unbindPreset', 'setProfile', 'removeToolName', 'deleteProfile', 'importPack', 'copyPreset', 'deletePreset', 'rescan']
 assert.deepEqual(remoteDescriptors.map(item => item.method), expected)
-assert.equal(remoteDescriptors.length, 10)
+assert.equal(remoteDescriptors.length, 12)
 assert.equal(statusDescriptor.method, 'status')
-assert.equal(clientDescriptors.length, 11)
-assert.equal(new Set(clientDescriptors.map(item => `${item.namespace}/${item.method}`)).size, 11)
+assert.equal(clientDescriptors.length, 13)
+assert.equal(new Set(clientDescriptors.map(item => `${item.namespace}/${item.method}`)).size, 13)
 
 const strictInputs = {
   status: [],
   setEnabled: [['enabled', true, 'true']],
+  setDebugLog: [['enabled', true, 'true']],
   setLanguage: [['language', 'ru', 1]],
   bindPreset: [['presetId', 'cordis', 1], ['profileName', 'standard-trim', null]],
   unbindPreset: [['presetId', 'cordis', 1]],
@@ -20,6 +21,7 @@ const strictInputs = {
     ['profile', { mode: 'deny', tools: ['read'] }, { mode: 'hide', tools: [] }]
   ],
   deleteProfile: [['name', 'custom', 1]],
+  removeToolName: [['toolName', 'ghost_tool', 1]],
   importPack: [['packId', 'gradient', 1]],
   copyPreset: [['presetId', 'cordis', 1], ['newName', 'cordis-copy', null], ['display', { name: 'X', description: 'Y' }, 42]],
   deletePreset: [['presetId', 'cordis', 1]],

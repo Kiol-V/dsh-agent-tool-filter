@@ -13,7 +13,7 @@ Thank you for your interest in contributing to the project! This guide covers ho
 ## Getting started
 
 ~~~text
-node --test
+node --test test/
 ~~~
 
 No project dependencies need to be installed to run the tests. Before development, check the syntax of changed files with `node --check <path-to-file>`.
@@ -26,14 +26,16 @@ No project dependencies need to be installed to run the tests. Before developmen
 | `lib/` | Modules, each with one responsibility. |
 | `test/` | Project tests; the final test report for a public release is also placed here. |
 | `client/` | UI sources. |
+| `scripts/` | Client bundle build (`build.mjs`). |
 | `docs/` | Guides. |
+| `dist/` | Package tarball builds (`npm pack`). |
 | `cordis.patch.yml` | Platform bundle patch. |
 
 The code uses JavaScript ESM. Save files as UTF-8 without a BOM. Put shared logic in shared modules rather than duplicating it.
 
 ## Development workflow
 
-- Checks: run `node --check` for every project file, then run `node --test`; tests must exit with code 0 before contributing. Also run the plugin in isolation using `test_drive` or `dsh-plugin-tests.mjs`.
+- Checks: run `node --check` for every project file, then run `node --test test/`; tests must exit with code 0 before contributing. Also run the plugin in isolation using `test_drive`.
 - Code style: aim for around 400 lines per file and around 80 lines per function. These are guidelines, not strict limits.
 - The project does not prescribe a commit message format; use clear messages that describe the change.
 - For a public release, include the final test report in `test/`.

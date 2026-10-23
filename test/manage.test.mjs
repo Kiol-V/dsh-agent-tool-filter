@@ -13,7 +13,9 @@ import {
   deleteProfile,
   importPack,
   registerManageContext,
+  removeToolName,
   rescan,
+  setDebugLog,
   setEnabled,
   setLanguage,
   setProfile,
@@ -181,6 +183,32 @@ await check('setEnabled rejects non-boolean values without a write', async () =>
   assert.equal(h.editCalls(), 0)
 })
 
+await check('setDebugLog writes once and persists the debug log flag', async () => {
+  const h = harness()
+  const on = await setDebugLog(h.ctx, true)
+  assert.equal(on.ok, true)
+  assert.equal(on.config.debugLog, true)
+  assert.equal(on.status.debugLog, true)
+  assert.equal(h.stored().debugLog, true)
+  assert.equal(h.editCalls(), 1)
+  assert.equal(h.reapplyCalls(), 1)
+
+  const off = await setDebugLog(h.ctx, false)
+  assert.equal(off.ok, true)
+  assert.equal(off.config.debugLog, false)
+  assert.equal(h.stored().debugLog, false)
+  assert.equal(h.editCalls(), 2)
+})
+
+await check('setDebugLog rejects non-boolean values without a write', async () => {
+  const h = harness()
+  const result = await setDebugLog(h.ctx, 'true')
+  assert.equal(result.ok, false)
+  assert.equal(result.field, 'enabled')
+  assert.match(result.error, /boolean/)
+  assert.equal(h.editCalls(), 0)
+})
+
 await check('deleteProfile resets an overridden built-in profile to its default', async () => {
   const h = harness({ presets: { cordis: 'balanced' } })
   const override = await setProfile(h.ctx, 'balanced', { mode: 'allow', tools: ['read'] })
@@ -231,6 +259,26 @@ await check('deleteProfile removes an unused custom profile in one write', async
   assert.equal(result.ok, true)
   assert.equal(result.config.profiles.custom, undefined)
   assert.equal(h.editCalls(), 1)
+})
+
+await check('removeToolName strips the name from every profile in one write', async () => {
+  const h = harness({ profiles: { custom: { mode: 'deny', tools: ['ghost_tool', 'read'] }, other: { mode: 'deny', tools: ['ghost_tool'] } } })
+  const result = await removeToolName(h.ctx, 'ghost_tool')
+  assert.equal(result.ok, true, result.error)
+  assert.deepEqual(result.config.profiles.custom.tools, ['read'])
+  assert.deepEqual(result.config.profiles.other.tools, [])
+  assert.equal(h.editCalls(), 1)
+  assert.equal(h.reapplyCalls(), 1)
+})
+
+await check('removeToolName rejects an unknown name and empty input without writes', async () => {
+  const h = harness({ profiles: { custom: { mode: 'deny', tools: ['read'] } } })
+  const unknown = await removeToolName(h.ctx, 'ghost_tool')
+  assert.equal(unknown.ok, false)
+  assert.match(unknown.error, /не найдено в профилях/)
+  const empty = await removeToolName(h.ctx, '  ')
+  assert.equal(empty.ok, false)
+  assert.equal(h.editCalls(), 0)
 })
 
 await check('rescan returns the scan report and unknown-name warnings', async () => {

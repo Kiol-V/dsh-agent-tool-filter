@@ -62,6 +62,43 @@ test('detect: нет API / ошибка → undefined (не паникуем)', 
   assert.equal(detectHiddenCalls(undefined, denyProfile), undefined)
 })
 
+test('detect: упоминание скрываемого инструмента в текстовом блоке (deny) → true', () => {
+  const agent = agentWith([
+    { role: 'user', content: [{ type: 'text', text: 'Скажи, чем полезен web_search в этом проекте' }] }
+  ])
+  assert.equal(detectHiddenCalls(agent, denyProfile), true)
+})
+
+test('detect: упоминание скрываемого инструмента в reasoning-блоке (deny) → true', () => {
+  const agent = agentWith([
+    { role: 'assistant', content: [{ type: 'reasoning', text: 'Пользователь спрашивает про web_fetch — отвечу про него.' }] }
+  ])
+  assert.equal(detectHiddenCalls(agent, denyProfile), true)
+})
+
+test('detect: allow-профиль — текст с именем ВНЕ списка не сканируется → false', () => {
+  const agent = agentWith([
+    { role: 'user', content: [{ type: 'text', text: 'А что делает web_search? Он вне списка read.' }] }
+  ])
+  assert.equal(detectHiddenCalls(agent, allowProfile), false)
+})
+
+test('detect: чистый текст без упоминаний → false', () => {
+  const agent = agentWith([
+    { role: 'user', content: [{ type: 'text', text: 'Просто разговор о задаче.' }] },
+    { role: 'assistant', content: [{ type: 'reasoning', text: 'Размышления без имён инструментов.' }] }
+  ])
+  assert.equal(detectHiddenCalls(agent, denyProfile), false)
+})
+
+test('detect: имя внутри слова (grep в grep_files) не считается упоминанием → false', () => {
+  const grepProfile = { mode: 'deny', tools: ['grep'] }
+  const agent = agentWith([
+    { role: 'user', content: [{ type: 'text', text: 'Инструмент grep_files ищет файлы по маске.' }] }
+  ])
+  assert.equal(detectHiddenCalls(agent, grepProfile), false)
+})
+
 // --- resolveMode ---
 
 test('resolveMode: behavior hide/block принудительно', () => {

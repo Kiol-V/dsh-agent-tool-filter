@@ -4,7 +4,7 @@
 
 Русская версия: см. [README.md](<README.md>).
 
-A DeepSeek Harness host plugin that filters tool schemas per preset for the main agent while leaving subagents with their full tool set. Version 1.0.0.
+A DeepSeek Harness host plugin that filters tool schemas per preset for the main agent while leaving subagents with their full tool set.
 
 ## Overview
 
@@ -32,12 +32,11 @@ Restricting tools through a preset is not suitable here: preset tool lists are f
 - Scans the installed tool palette («can be disabled / cannot be disabled» summary) and reports warnings with reasons.
 - Russian and English UI (language switcher, «Same as app» mode).
 - Diagnostics block with technical data (remote mount, locale, version, counters).
-- File diagnostics toggle `debugLog` (off by default); `ATF_DEBUG_LOG` forces logging on and sets the log file path.
+- File diagnostics: the `debugLog` toggle in plugin settings (off by default; changes apply immediately). The log is written to `<DSH_HOME>/logs/agent-tool-filter-debug.log`; `ATF_DEBUG_LOG=<path>` forces logging on with a custom file path.
 
 ## Tech stack
 
 - **Platform:** DeepSeek Harness host plugin.
-- **Version:** 1.0.0.
 - **Dependencies:** None; the host provides the `@deepseek-ai/*` packages.
 
 ## Requirements
@@ -64,21 +63,31 @@ Filtering is disabled until you configure a `preset → profile` mapping. The pa
       name: dsh-agent-tool-filter
       config:
         enabled: true
-        presets:                    # матрица «id пресета → имя профиля»; пусто = не фильтровать нигде
+        behavior: auto               # auto picks hide/block by history; hide or block pin the mode
+        debugLog: false              # file diagnostics of the filtering steps
+        language: auto               # plugin UI language: auto/ru/en
+        presets:                    # matrix "preset id → profile name"; empty = filter nothing
           cordis: cordis-trim
           standard: minimal-orchestrator
-        profiles:                   # свои профили и правка дефолтных (переопределяют по имени)
+        profiles:                   # custom profiles and built-in overrides (by name)
           my-profile:
-            mode: deny              # deny — убрать перечисленные; allow — оставить только их
+            mode: deny              # deny — remove the listed; allow — keep only them
             tools: [web_search, web_fetch]
 ~~~
 
 | Field | Default | Description |
 |---|---|---|
 | `enabled` | `true` | `false` makes the plugin passive |
+| `behavior` | `auto` | Compatibility mode: `auto` picks by history, `hide` trims schemas (see the risk note), `block` keeps schemas visible but blocks selected calls |
+| `debugLog` | `false` | File diagnostics of the filtering steps (the log path is shown in the Diagnostics block) |
 | `presets` | empty | Maps preset IDs to profile names; nothing is filtered until a mapping is added |
 | `profiles` | built-in profiles | Defines profiles or overrides built-in profiles by name. In `deny` mode the listed tools are removed; in `allow` mode only the listed tools are retained |
 | `language` | `auto` | Plugin UI language: `auto` follows the app, or pin `ru` / `en` |
+
+⚠ **Risk of the `hide` mode:** pinned schema hiding does not protect against strict-provider
+errors — if the chat history still contains calls to hidden tools, turns may fail with
+“The provider returned an invalid tool call”. The `auto` mode picks safe behavior from the
+history on its own; pin `hide` only when the history is clean or your provider is lenient.
 
 See the [filtering guide](<docs/filtering-guide.en.md>) for the full setup, scan, verification, and rollback workflow.
 
@@ -111,9 +120,9 @@ Configuration and matrix changes are applied to live agents on a best-effort bas
 
 To remove a filter from a particular preset, remove its mapping from `presets`. Restrictions are disposed from the agent scope when they are removed.
 
-`tools.restrict()` controls tool visibility to the model and can reduce tool-schema overhead; it is not a security sandbox or a security guarantee. Tools registered in the plugin's own layer, including `team_*` tools, are not filtered by `restrict()`.
+`tools.restrict()` controls tool visibility to the model and can reduce tool-schema overhead; it is not a security sandbox or a security guarantee. Tools registered in the plugin's own layer or dynamically — for example `team_*`, `team_task_*`, `spawn_teammate`, `wait_agent` — are not filtered by `restrict()`.
 
-The UI card (v1.0.0) opens from the Plugin Manager: the `dsh-agent-tool-filter` row → Configure. It includes the enable toggle and status, a preset → profile matrix (default and custom blocks), profile editing in modal dialogs, template pack imports, a tool-palette scan summary with warnings, a collapsed diagnostics block, and a Russian/English language switcher. Plugin Manager display metadata is available in English and Russian, with an original bundled icon.
+The settings UI card opens from the Plugin Manager: the `dsh-agent-tool-filter` row → Configure. It includes the enable toggle and status, the “File diagnostics” toggle (step-by-step filtering log; the file path is shown in the Diagnostics block), a preset → profile matrix (default and custom blocks), profile editing in modal dialogs (problem names — typos, “the limiter rejects the mask” — get an active checkbox with a note; uncheck and save to remove the name), template pack imports, a tool-palette scan summary with warnings (each “not found” warning offers a “Remove name from profile” button), a collapsed diagnostics block, and a Russian/English language switcher. Plugin Manager display metadata is available in English and Russian, with an original bundled icon.
 
 ## Provider compatibility
 
@@ -123,6 +132,13 @@ The plugin chooses its working mode **automatically** — there are no separate 
 - When the agent's history already contains calls to tools being hidden, the plugin temporarily keeps the schemas visible and instead blocks calls to hidden tools with a hint to delegate the task to a subagent — the history and the tool list stay consistent for both strict and lenient providers.
 - After compaction (history summarization) the chat switches to regular schema hiding — context savings engage automatically (verified: after compaction the hidden schemas disappear from the request).
 - If the hidden tools were never called in the chat, schema hiding engages immediately — even in an old chat (verified: the chat runs without errors).
+
+## Web environment specifics (since 1.0.1)
+
+01. New chats: the filter is stable — the mask applies at agent creation and hide mode (schema trimming) is visible from the first turn.
+02. Old chats with a “dirty” history (calls to hidden tools): auto mode keeps guard — schemas stay in the list, hidden tool calls are blocked. This protects against the “Provider returned an invalid tool call” error on strict providers.
+03. Guard → hide is reconsidered on mode re-evaluation: after compaction (since 1.0.1), on agent preset change, or on DSH restart. If the compaction summary mentions hidden names, the mode intentionally stays guard (conservative protection); hide comes once the history stops mentioning them.
+04. To observe diagnostics: the `debugLog` toggle in plugin settings or the `ATF_DEBUG_LOG` variable.
 
 ## Repository structure
 
@@ -142,7 +158,7 @@ Versions and release notes are published in the repository's [GitHub Releases](h
 
 ## Contributing
 
-Contribution guidelines are available in [CONTRIBUTING.md](<CONTRIBUTING.md>) (RU) and [CONTRIBUTING.en.md](<CONTRIBUTING.en.md>) (EN). Before contributing, run `node --check` for changed files and the test modules: `node repo/test/<module>.test.mjs`.
+Contribution guidelines are available in [CONTRIBUTING.md](<CONTRIBUTING.md>) (RU) and [CONTRIBUTING.en.md](<CONTRIBUTING.en.md>) (EN). Before contributing, run `node --check` for changed files and the tests: `node --test test/`.
 
 ## Security
 

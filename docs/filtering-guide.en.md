@@ -2,7 +2,7 @@
 
 Русская версия: см. [filtering-guide.md](<filtering-guide.md>).
 
-This guide covers installation, configuration, verification, and rollback. It describes plugin **1.0.0** for **DSH 0.2.1**.
+This guide covers installation, configuration, verification, and rollback. It describes the plugin for **DSH 0.2.1-rc.2**.
 
 ## What the plugin does
 
@@ -12,7 +12,7 @@ Important: this limits visibility or calls; it is not sandboxing or authorizatio
 
 ## Step 0. Installation and first activation
 
-01. In Plugin Manager, run `plugin_manager` → `install_bundle` and select the package `.tgz` archive or the unpacked package directory. To update, install version **1.0.0** the same way. You do not need to edit the profile manually or unpack the package into a DSH folder.
+01. In Plugin Manager, run `plugin_manager` → `install_bundle` and select the package `.tgz` archive or the unpacked package directory. To update, install the latest version the same way. You do not need to edit the profile manually or unpack the package into a DSH folder.
 02. Restart DSH if prompted. The plugin has its own icon and localized Russian/English metadata in Plugin Manager.
 03. On first activation, the plugin scans the installed DSH. While the preset-to-profile matrix has no bindings, filtering does not change any preset's behavior.
 
@@ -27,7 +27,8 @@ While the matrix has no bindings, filtering is not applied to any preset.
 Open the plugin card in Plugin Manager → Configure:
 
 - The preset-to-profile matrix lists presets in two alphabetical groups: built-in and custom. Each preset can have one profile; one profile can be used by multiple presets.
-- In **Profiles**, create, edit, or copy a profile in a modal editor. The built-in `balanced` profile covers administrative tools; other profiles are user-created, and a custom profile named `balanced` overrides the built-in one. The editor groups enabled, disabled, and uncontrollable tools.
+- The “Filtering enabled” toggle and status (agents with a mask, hidden schemas); the “File diagnostics” toggle turns the step-by-step filtering log on/off (the file path is shown in the Diagnostics block).
+- In **Profiles**, create, edit, or copy a profile in a modal editor. The built-in `balanced` profile covers administrative tools; other profiles are user-created, and a custom profile named `balanced` overrides the built-in one. The editor groups enabled, disabled, and uncontrollable tools; problem names (typos, “the limiter rejects the mask”) get an active checkbox and a note — uncheck and save to remove the name from the profile.
 - Template packs provide starting points: **Gradient** (`strict`, `soft`), **Roles** (`focus`, `no-web`, `no-admin`, `minimal`), and **Layers** (`no-web`, `no-admin`, `no-dev-skills`).
 - The language selector supports Russian, English, or the application language. A temporary status appears under the section where an action was performed.
 - Use the tool-scan palette for available names; expand **Diagnostics** for the technical summary. The UI scan is the source for the available tool names.
@@ -43,12 +44,19 @@ Configuration fields, if you configure them outside the card:
 | Field | Purpose |
 |---|---|
 | `enabled` | Enables (`true` by default) or disables filtering. |
-| `behavior` | `auto` (default) selects a safe mode based on conversation history; `hide` hides schemas, while `block` keeps schemas visible but blocks selected calls. |
+| `behavior` | `auto` (default) selects a safe mode based on conversation history; `hide` hides schemas (see the risk note), while `block` keeps schemas visible but blocks selected calls. |
 | `language` | `auto` (default), `ru`, or `en` — the interface language. |
+| `debugLog` | `false` (default) — file diagnostics of the filtering steps; see the “File diagnostics” section. |
 | `profiles` | An object mapping profile names to `{ mode, tools }`. `mode: deny` disables the listed tools; `mode: allow` keeps only the listed tools. |
 | `presets` | An object mapping preset IDs to profile names. An empty object means no preset is filtered. |
 
-Example filter configuration for a main-agent preset (replace `main-preset` with an actual preset ID):
+⚠ **Risk of the `hide` mode:** pinned schema hiding does not protect against strict-provider
+errors — if the chat history still contains calls to hidden tools, turns may fail with
+“The provider returned an invalid tool call”. The `auto` mode picks safe behavior from the
+history on its own; pin `hide` only when the history is clean or your provider is lenient.
+
+Example filter configuration for a main-agent preset (a `config` fragment; replace
+`main-preset` with an actual preset ID — the full set of fields is in the table above):
 
 ~~~yaml
 presets:
@@ -59,7 +67,7 @@ profiles:
     tools: [plugin_manager, security_audit]
 ~~~
 
-In DSH 0.2.1, subagent configuration no longer has `toolFilter` or `persona` fields. A subagent's own agent preset defines its tool set. For example, give a dedicated web-search subagent preset the tools `web_search`, `web_fetch`, and `read`. Changes to the tool list in an agent preset may be inherited by child subagents; the plugin mask, in contrast, applies only to the main agent.
+In DSH 0.2.1-rc.2, subagent configuration no longer has `toolFilter` or `persona` fields. A subagent's own agent preset defines its tool set. For example, give a dedicated web-search subagent preset the tools `web_search`, `web_fetch`, and `read`. Changes to the tool list in an agent preset may be inherited by child subagents; the plugin mask, in contrast, applies only to the main agent.
 
 ## Step 4. Verify
 
@@ -99,16 +107,20 @@ profiles:
 ## Diagnostics
 
 - The scan palette marks tools that can be disabled with `✅` and tools that cannot with `⚠`. The warning `⚠ cannot be disabled (N)` lists uncontrollable tools, including own-layer tools and reserved names such as `run_code`; the filter cannot affect them.
-- `❌` beside a warning means the tool name was not found. Check its spelling or whether the tool is available in DSH. An unknown profile in manual configuration is not applied; the configuration-validation warning is written to the DSH log.
-- Expand **Diagnostics** for technical information, including the `presets · profiles · tools: N` counters.
+- `❌` beside a warning means the tool name was not found. Check its spelling or whether the tool is available in DSH — or click “Remove name from profile” right in the warning (the name is dropped from every profile). An unknown profile in manual configuration is not applied; the configuration-validation warning is written to the DSH log.
+- Expand **Diagnostics** for technical information, including the log file path and the `presets · profiles · tools: N` counters.
 - A status below a section reports the latest action. For details about applying the filter, check the DSH diagnostic log.
 
 ### File diagnostics (`debugLog`)
 
-The `debugLog` option (boolean, `false` by default) enables the step-by-step diagnostic log of the filtering pipeline, written to `<os.tmpdir()>/agent-tool-filter-debug.log`. Toggle it in the plugin settings; changes apply immediately. The `ATF_DEBUG_LOG` environment variable is a forced override: it enables logging regardless of the option and sets the log file path (for example, `ATF_DEBUG_LOG=C:\temp\atf.log`).
+The `debugLog` option (boolean, `false` by default) enables the step-by-step diagnostic log of the filtering pipeline, written to `<DSH_HOME>/logs/agent-tool-filter-debug.log` (fallback without `DSH_HOME` — `<os.tmpdir()>/agent-tool-filter-debug.log`). Toggle it with the “File diagnostics” switch in the plugin settings; changes apply immediately. The `ATF_DEBUG_LOG` environment variable is a forced override: it enables logging regardless of the option and sets the log file path (for example, `ATF_DEBUG_LOG=C:\temp\atf.log`).
 
 ## FAQ
 
 - **A tool cannot be disabled.** Check its status in the scan palette. Tools marked `⚠` cannot be restricted by the mask; also check the profile name and matrix binding.
 - **Changes do not appear in the current session.** Matrix, toggle, and profile changes apply live. However, after a plugin update, verify it in a new session after restarting DSH: an existing session may continue using its pinned plugin revision.
 - **How do I give a subagent web access?** Assign it its own agent preset with the required tools. The plugin mask affects only the main agent; changes to a preset's tool list may be inherited by subagents, so set their tool access in their own preset.
+
+## Web environment specifics
+
+In old chats whose history contains calls to hidden tools, auto mode keeps guard (protection from strict-provider errors); hide engages after compaction/preset change/restart and only once the history stops mentioning hidden names. See “Web environment specifics” in the README for details.

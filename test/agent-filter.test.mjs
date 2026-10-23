@@ -87,9 +87,56 @@ test('handle: пресет неизвестен (composedPreset undefined) — �
   const h = makeHarness()
   const a = h.agent('r')
   h.roots.push(a)
-  const { handle } = makeAgentFilter(h.ctx, cfg, log)
+  const { handle, disposeTimers } = makeAgentFilter(h.ctx, cfg, log)
   handle(a)
   assert.equal(h.restrictCalls.length, 0)
+  disposeTimers()
+})
+
+test('handle: пресет ещё не назначен — существующая маска сохраняется (D2)', () => {
+  const h = makeHarness()
+  const a = h.agent('r')
+  h.roots.push(a)
+  h.presetByAgent.set(a.ctx, 'cordis')
+  const { handle, disposeTimers } = makeAgentFilter(h.ctx, cfg, log)
+  handle(a)
+  assert.ok(readState(a))
+  h.presetByAgent.delete(a.ctx) // промежуточное состояние: composedPreset вернул undefined
+  handle(a)
+  assert.ok(readState(a), 'mask must survive an unknown-preset pass')
+  assert.equal(h.disposals(), 0, 'intermediate state must not drop disposers')
+  disposeTimers()
+})
+
+test('handle: связка указывает на отсутствующий профиль — прежняя маска остаётся (D2)', () => {
+  const h = makeHarness()
+  const a = h.agent('r')
+  h.roots.push(a)
+  h.presetByAgent.set(a.ctx, 'cordis')
+  const { handle, disposeTimers } = makeAgentFilter(h.ctx, cfg, log)
+  handle(a)
+  assert.ok(readState(a))
+  const cfg2 = { ...cfg, presets: { cordis: 'ghost-profile' }, profiles: cfg.profiles }
+  const { handle: handle2, disposeTimers: dispose2 } = makeAgentFilter(h.ctx, cfg2, log)
+  handle2(a)
+  assert.ok(readState(a), 'mask must survive a missing-profile pass')
+  assert.equal(h.disposals(), 0)
+  disposeTimers()
+  dispose2()
+})
+
+test('handle: отложенный повтор применяет фильтр, когда пресет становится известным (D4)', async () => {
+  const h = makeHarness()
+  const a = h.agent('r')
+  h.roots.push(a)
+  const { handle, disposeTimers } = makeAgentFilter(h.ctx, cfg, log)
+  handle(a) // пресет неизвестен — ждём agent-preset/selected
+  assert.equal(readState(a), undefined)
+  h.presetByAgent.set(a.ctx, 'cordis') // платформа прислала настоящий пресет
+  await new Promise(resolve => setTimeout(resolve, 2100))
+  assert.ok(readState(a), 'retry must apply the mask once the preset is known')
+  assert.equal(h.restrictCalls.length, 2)
+  disposeTimers()
 })
 
 test('handle: повторный вызов снимает старые маски перед новыми (hot-update)', () => {

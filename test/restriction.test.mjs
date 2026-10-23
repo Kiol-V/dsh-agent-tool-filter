@@ -29,7 +29,9 @@ function makeAgent ({ hiddenNames = new Set(), visibleCount = 10, throwSchemas =
     },
     schemas () {
       if (throwSchemas) throw new Error('no schemas')
-      return Array.from({ length: visibleCount }, (_, i) => ({ name: `tool-${i}` }))
+      // tool-* — «прочие» схемы; read/write присутствуют в реестре, чтобы allow-тесты
+      // сверялись с known-именами (фильтрация неизвестных в allow).
+      return [...Array.from({ length: visibleCount }, (_, i) => ({ name: `tool-${i}` })), { name: 'read' }, { name: 'write' }]
     }
   }
   const agent = {
@@ -79,6 +81,26 @@ test('applyRestriction allow: ошибка restrict — имя в skipped, со�
   const state = readState(agent)
   assert.equal(state.applied, 0)
   assert.equal(state.skipped.length, 1)
+})
+
+test('applyRestriction allow: неизвестные имена отфильтровываются, остальные — одним вызовом', () => {
+  const { agent, calls } = makeAgent()
+  applyRestriction(agent, 'p', 'prof', { mode: 'allow', tools: ['read', 'ghost', 'write'] }, log)
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0], { allow: ['read', 'write'] })
+  const state = readState(agent)
+  assert.equal(state.applied, 2)
+  assert.equal(state.skipped.length, 1)
+  assert.match(state.skipped[0], /ghost/)
+})
+
+test('applyRestriction allow: ни одного известного имени — restrict не вызывается', () => {
+  const { agent, calls } = makeAgent()
+  applyRestriction(agent, 'p', 'prof', { mode: 'allow', tools: ['ghost', 'phantom'] }, log)
+  assert.equal(calls.length, 0)
+  const state = readState(agent)
+  assert.equal(state.applied, 0)
+  assert.equal(state.skipped.length, 2)
 })
 
 test('clearRestriction: disposers вызываются, состояние снимается', () => {
