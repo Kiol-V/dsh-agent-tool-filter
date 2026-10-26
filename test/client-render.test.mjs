@@ -2,6 +2,8 @@
 // Захватывает компонент из lib/client.js через фейковый ctx (apply → slots.register)
 // и рендерит его через react-dom/server — ловит падения рендера до живого профиля.
 // Язык UI по умолчанию — en (resolveLang без локали платформы); RU проверяется явно.
+// P3c: обёртка dock-слота conversation.input.dock — очередь по store (пустая →
+// пусто, непустая → панель видна) и onAnswer → remote-канал.
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -44,13 +46,44 @@ const plugin = captured[0].factory(localRequire)
 assert.equal(typeof plugin.apply, 'function', 'plugin exports apply')
 assert.deepEqual(plugin.inject, ['remote', 'slots'], 'plugin exports inject')
 
-// 2. Фейковый ctx: apply должен зарегистрировать слот plugins.row.config.
-const calls = { mount: 0, register: null, injects: [] }
+// 2. Фейковый ctx: apply должен зарегистрировать слоты plugins.row.config
+// и conversation.input.dock (entry «моста апрува» — полоса над баром ввода).
+const calls = { mount: 0, registrations: [], injects: [], slotInjects: [], cleanups: [] }
+// Пакет для снимка очереди: сессия root-агента root-00000001.
+const approvalPacket = {
+  requestId: 'approval-abcd1234-call-1',
+  rootSessionId: 'root-00000001',
+  agent: {
+    preset: 'wolf-websearcher',
+    shortSessionId: 'abcd1234',
+    assignment: 'Найти свежие релизы DeepSeek Harness',
+    assignmentFound: true
+  },
+  action: { toolName: 'pwsh', arguments: { command: 'node scripts/build.mjs' } },
+  justification: 'Нужен актуальный источник по релизам',
+  createdAt: '2026-10-24T10:00:00.000Z'
+}
+const answerCalls = []
+const streamState = { aborted: false }
 const fakeNs = {
   status: async () => ({
     ok: true,
     value: { enabled: true, language: 'auto', agents: [], presets: {}, profiles: {}, presetIds: [], tools: [], warnings: [] }
-  })
+  }),
+  answerApprovalRequest: async (requestId, decision) => {
+    answerCalls.push(['ns', requestId, decision])
+    return { ok: true, value: 'allowed-once' }
+  },
+  // Stream «моста апрува»: первый кадр — snapshot с пакетом, дальше генератор
+  // ЖДЁТ abort без таймеров (иначе pump уйдёт в reconnect-паузу 3 с и процесс
+  // не завершится); abort фиксируем — им проверяется store.stop() на unmount.
+  watchApprovalRequests: signal => (async function * () {
+    yield { type: 'snapshot', requests: [approvalPacket] }
+    await new Promise(resolve => {
+      if (signal?.aborted === true) { streamState.aborted = true; return resolve() }
+      signal?.addEventListener('abort', () => { streamState.aborted = true; resolve() }, { once: true })
+    })
+  })()
 }
 const fakeCtx = {
   remote: {
@@ -66,30 +99,84 @@ const fakeCtx = {
     return callback(fakeCtx)
   },
   get: (name) => (name === 'remote.agentToolFilter' ? fakeNs : undefined),
-  effect: () => () => {},
+  effect: (setup) => {
+    // Как cordis: setup выполняется сразу, cleanup сохраняем на unmount-проверку.
+    calls.cleanups.push(setup())
+    return () => {}
+  },
   slots: {
     inject: (name, factory) => {
-      assert.equal(name, 'plugins.row.config')
+      calls.slotInjects.push(name)
       return factory()
     },
     register: (descriptor, component) => {
-      calls.register = { descriptor, component }
-      return () => {}
+      const record = { descriptor, component, disposed: false }
+      calls.registrations.push(record)
+      return () => { record.disposed = true }
     }
   }
 }
 plugin.apply(fakeCtx)
-assert.ok(calls.register, 'apply registers the row-config seat')
-assert.equal(calls.register.descriptor.name, 'plugins.row.config')
-assert.equal(calls.register.descriptor.key, 'dsh-agent-tool-filter#agent-tool-filter')
 
-// 2b. После $mount (микро-такты) namespace должен захватиться через ctx.inject.
+const rowConfigReg = calls.registrations.find(record => record.descriptor.name === 'plugins.row.config')
+assert.ok(rowConfigReg, 'apply registers the row-config seat')
+assert.equal(rowConfigReg.descriptor.key, 'dsh-agent-tool-filter#agent-tool-filter')
+assert.ok(calls.slotInjects.includes('plugins.row.config'), 'row-config seat is wired via slots.inject')
+
+// P3c: entry списка conversation.input.dock — полоса НАД composer-баром (бар
+// ввода не вытесняется, кейс 05); цепочка conversation.composer ему больше
+// не принадлежит. Контракт списочных слотов: id/order, без chain-select.
+assert.ok(calls.slotInjects.includes('conversation.input.dock'), 'input dock seat is wired via slots.inject')
+assert.ok(!calls.slotInjects.includes('conversation.composer'), 'the composer chain must stay free for the stock bar')
+const dockRegs = () => calls.registrations.filter(record => record.descriptor.name === 'conversation.input.dock')
+const approvalEntryReg = dockRegs().find(record => record.descriptor.id === 'approval-bridge')
+assert.ok(approvalEntryReg, 'apply registers the approval-bridge dock entry')
+assert.equal(approvalEntryReg.descriptor.order, 30, 'the dock entry renders after the stock dock entries')
+assert.equal(approvalEntryReg.descriptor.select, undefined, 'a list-slot entry must not carry a chain select')
+
+// Пустой store: обёртка ничего не показывает (dock-слот и так рендерит бар).
+assert.equal(
+  renderToString(React.createElement(approvalEntryReg.component, { session: { sessionId: 'root-00000001' } })),
+  '',
+  'the dock entry must render nothing on an empty store'
+)
+
+// 2b. После $mount (микро-такты) namespace должен захватиться через ctx.inject;
+// захват namespace стартует store — snapshot-кадр заполняет очередь.
 await new Promise(resolve => setTimeout(resolve, 0))
 assert.ok(calls.injects.some(names => names.includes('remote.agentToolFilter')), 'namespace captured via ctx.inject')
 assert.ok(calls.injects.some(names => names.includes('locale')), 'locale face captured via ctx.inject')
+await new Promise(resolve => setTimeout(resolve, 0))
+
+// P3c: store получил snapshot — обёртка рендерит панель для СВОЕЙ сессии
+// (owner-пропс dock-слота InputZone.session), чужую сессию и отсутствие
+// сессии не берёт.
+const approvalHtml = renderToString(React.createElement(approvalEntryReg.component, { session: { sessionId: 'root-00000001' } }))
+const approvalFlat = approvalHtml.replaceAll('<!-- -->', '')
+assert.ok(approvalFlat.includes('Разрешить (один раз)'), `wrapper must render the panel with a queued packet, got: ${approvalHtml.slice(0, 300)}`)
+assert.ok(approvalFlat.includes('wolf-websearcher'), 'panel must show the requesting preset')
+const ghostHtml = renderToString(React.createElement(approvalEntryReg.component, { session: { sessionId: 'root-00000002' } }))
+assert.equal(ghostHtml, '', 'wrapper must render nothing for a session without packets')
+const noSessionHtml = renderToString(React.createElement(approvalEntryReg.component, { session: undefined }))
+assert.equal(noSessionHtml, '', 'wrapper must render nothing without a session')
+
+// onAnswer → answerApprovalRequest с верными аргументами (мок-сервис в параметре).
+await plugin.answerApprovalRequest('approval-req-1', 'allow', { answerApprovalRequest: async (...args) => { answerCalls.push(['mock', ...args]); return { ok: true, value: 'allowed-once' } } })
+assert.deepEqual(answerCalls.filter(call => call[0] === 'mock'), [['mock', 'approval-req-1', 'allow']], 'answerApprovalRequest must forward requestId and decision')
+// Точный вызов панели: onAnswer(requestId, decision) без сервиса — service
+// резолвится из захваченного namespace (serviceRef), как в бою.
+await plugin.answerApprovalRequest('approval-req-3', 'allow')
+assert.deepEqual(answerCalls.filter(call => call[0] === 'ns'), [['ns', 'approval-req-3', 'allow']], 'the two-arg panel call must reach the captured namespace')
+// Ошибки вызова — отказ промиса: панель (failBack) логирует и сбрасывает
+// кнопки, поэтому промис здесь НЕ глотается.
+await assert.rejects(
+  () => plugin.answerApprovalRequest('approval-req-2', 'reject', { answerApprovalRequest: async () => { throw new Error('service down') } }),
+  /service down/,
+  'a failed answer must reject so the panel can reset its buttons'
+)
 
 // 3. Рендер страницы строки (view: 'page') — как это делает SlotOutlet.
-const page = renderToString(React.createElement(calls.register.component, { view: 'page', form: undefined }))
+const page = renderToString(React.createElement(rowConfigReg.component, { view: 'page', form: undefined }))
 const flat = page.replaceAll('<!-- -->', '')
 assert.ok(flat.includes('Tool filtering'), `card must render (en default), got: ${page.slice(0, 400)}`)
 assert.ok(flat.includes('Filtering enabled'), 'card must contain the enable toggle')
@@ -97,7 +184,7 @@ assert.ok(flat.includes('Refresh'), 'card must contain the refresh button')
 assert.ok(flat.includes('Plugin UI language'), 'card must contain the language row')
 
 // 4. Рендер summary-вида.
-const summary = renderToString(React.createElement(calls.register.component, { view: 'summary' }))
+const summary = renderToString(React.createElement(rowConfigReg.component, { view: 'summary' }))
 assert.ok(summary.includes('Tool filtering settings'), `summary must render, got: ${summary.slice(0, 400)}`)
 
 // 5. Рендер UI-секций (матрица, профили, редактор, скан) с реальными данными statusFull.
@@ -246,5 +333,13 @@ const packsHtml = flatOf(renderToString(React.createElement(plugin.PacksSection,
 assert.ok(packsHtml.includes('Градиент'), 'packs must list templates')
 assert.ok(packsHtml.includes('Import'), 'packs must offer import')
 assert.ok(packsHtml.includes('strict, balanced, soft'), 'packs must show their profiles')
+
+// P3c unmount: cleanup эффекта останавливает store — активный stream получил
+// abort (иначе переподписки живут после выгрузки плагина).
+assert.equal(streamState.aborted, false, 'the approval stream must be live while the plugin is mounted')
+for (const cleanup of calls.cleanups) {
+  if (typeof cleanup === 'function') cleanup()
+}
+assert.equal(streamState.aborted, true, 'plugin unmount must stop the store (stream aborted)')
 
 console.log('client-render: PASS')

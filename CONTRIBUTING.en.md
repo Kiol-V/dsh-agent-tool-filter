@@ -26,6 +26,7 @@ No project dependencies need to be installed to run the tests. Before developmen
 | `lib/` | Modules, each with one responsibility. |
 | `test/` | Project tests; the final test report for a public release is also placed here. |
 | `client/` | UI sources. |
+| `locale/` | UI locales (RU/EN). |
 | `scripts/` | Client bundle build (`build.mjs`). |
 | `docs/` | Guides. |
 | `dist/` | Package tarball builds (`npm pack`). |

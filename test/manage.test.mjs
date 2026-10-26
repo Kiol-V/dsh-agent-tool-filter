@@ -19,6 +19,7 @@ import {
   setEnabled,
   setLanguage,
   setProfile,
+  setSubagentEscalation,
   unbindPreset
 } from '../lib/manage.mjs'
 
@@ -157,6 +158,35 @@ await check('bindPreset rejects missing profile and missing preset without write
   assert.equal(h.editCalls(), 0)
 })
 
+await check('bindPreset rejects a prototype-inherited profile name (toString) without writes', async () => {
+  const h = harness()
+  const result = await bindPreset(h.ctx, 'cordis', 'toString')
+  assert.equal(result.ok, false, 'inherited keys must not pass the profile-exists check')
+  assert.match(result.error, /профиль "toString" не найден/)
+  assert.equal(result.field, 'profileName')
+  assert.equal(h.editCalls(), 0)
+})
+
+await check('setProfile rejects reserved object-key names without a write', async () => {
+  for (const name of ['__proto__', 'constructor', 'prototype']) {
+    const h = harness()
+    const result = await setProfile(h.ctx, name, { mode: 'deny', tools: ['read'] })
+    assert.equal(result.ok, false)
+    assert.match(result.error, /зарезервированное имя/)
+    assert.equal(result.field, 'name')
+    assert.equal(h.editCalls(), 0, `profile "${name}" must not be stored`)
+  }
+})
+
+await check('bindPreset rejects a reserved preset id without a write', async () => {
+  const h = harness()
+  const result = await bindPreset(h.ctx, '__proto__', 'balanced')
+  assert.equal(result.ok, false)
+  assert.match(result.error, /зарезервированное имя/)
+  assert.equal(result.field, 'presetId')
+  assert.equal(h.editCalls(), 0)
+})
+
 await check('unbindPreset removes the binding in one write', async () => {
   const h = harness({ presets: { cordis: 'balanced' } })
   const result = await unbindPreset(h.ctx, 'cordis')
@@ -203,6 +233,32 @@ await check('setDebugLog writes once and persists the debug log flag', async () 
 await check('setDebugLog rejects non-boolean values without a write', async () => {
   const h = harness()
   const result = await setDebugLog(h.ctx, 'true')
+  assert.equal(result.ok, false)
+  assert.equal(result.field, 'enabled')
+  assert.match(result.error, /boolean/)
+  assert.equal(h.editCalls(), 0)
+})
+
+await check('setSubagentEscalation writes once and persists the escalation flag', async () => {
+  const h = harness()
+  const on = await setSubagentEscalation(h.ctx, true)
+  assert.equal(on.ok, true)
+  assert.equal(on.config.subagentEscalation, true)
+  assert.equal(on.status.subagentEscalation, true)
+  assert.equal(h.stored().subagentEscalation, true)
+  assert.equal(h.editCalls(), 1)
+  assert.equal(h.reapplyCalls(), 1)
+
+  const off = await setSubagentEscalation(h.ctx, false)
+  assert.equal(off.ok, true)
+  assert.equal(off.config.subagentEscalation, false)
+  assert.equal(h.stored().subagentEscalation, false)
+  assert.equal(h.editCalls(), 2)
+})
+
+await check('setSubagentEscalation rejects non-boolean values without a write', async () => {
+  const h = harness()
+  const result = await setSubagentEscalation(h.ctx, 'true')
   assert.equal(result.ok, false)
   assert.equal(result.field, 'enabled')
   assert.match(result.error, /boolean/)
@@ -262,13 +318,26 @@ await check('deleteProfile removes an unused custom profile in one write', async
 })
 
 await check('removeToolName strips the name from every profile in one write', async () => {
-  const h = harness({ profiles: { custom: { mode: 'deny', tools: ['ghost_tool', 'read'] }, other: { mode: 'deny', tools: ['ghost_tool'] } } })
+  const h = harness({ profiles: { custom: { mode: 'deny', tools: ['ghost_tool', 'read'] }, other: { mode: 'deny', tools: ['ghost_tool', 'write'] } } })
   const result = await removeToolName(h.ctx, 'ghost_tool')
   assert.equal(result.ok, true, result.error)
   assert.deepEqual(result.config.profiles.custom.tools, ['read'])
-  assert.deepEqual(result.config.profiles.other.tools, [])
+  assert.deepEqual(result.config.profiles.other.tools, ['write'])
   assert.equal(h.editCalls(), 1)
   assert.equal(h.reapplyCalls(), 1)
+})
+
+await check('removeToolName rejects emptying a profile and writes nothing', async () => {
+  const h = harness({
+    profiles: { solo: { mode: 'deny', tools: ['ghost_tool'] }, custom: { mode: 'deny', tools: ['ghost_tool', 'read'] } }
+  })
+  const result = await removeToolName(h.ctx, 'ghost_tool')
+  assert.equal(result.ok, false)
+  assert.match(result.error, /tools не может быть пустым/)
+  assert.equal(result.field, 'toolName')
+  assert.equal(h.editCalls(), 0)
+  assert.deepEqual(h.current().profiles.solo.tools, ['ghost_tool'], 'the config must stay unchanged')
+  assert.deepEqual(h.stored().profiles.solo.tools, ['ghost_tool'], 'nothing may be persisted')
 })
 
 await check('removeToolName rejects an unknown name and empty input without writes', async () => {
@@ -523,6 +592,31 @@ await check('copyPreset rejects a duplicate preset id without inserting', async 
   })
   const result = await copyPreset(ctx, 'cordis', 'My Copy')
   assert.equal(result.ok, false)
+  assert.equal(result.field, 'newName')
+  assert.equal(inserted.length, 0)
+})
+
+await check('copyPreset rejects a reserved copy name without inserting', async () => {
+  const inserted = []
+  const tree = { create: async options => { inserted.push(options); return options.id } }
+  const entry = { parent: { tree } }
+  const rows = [{ id: 'preset-cordis', options: { id: 'preset-cordis', config: { id: 'cordis', plugins: [] } } }]
+  const ctx = {
+    fiber: { entry },
+    get (key) {
+      if (key === 'configEditor') return { entries: () => rows, async edit () { throw new Error('not used') } }
+      return undefined
+    }
+  }
+  registerManageContext(ctx, {
+    initialConfig: {},
+    getConfig: () => normalizeConfig({}),
+    setConfig: () => {},
+    reapply: () => {}
+  })
+  const result = await copyPreset(ctx, 'cordis', '__proto__')
+  assert.equal(result.ok, false)
+  assert.match(result.error, /зарезервированное имя/)
   assert.equal(result.field, 'newName')
   assert.equal(inserted.length, 0)
 })

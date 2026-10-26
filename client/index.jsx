@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { makeT, resolveLang } from '../lib/i18n.mjs'
 import { resolveCopyDisplay } from '../lib/preset-display.mjs'
 import { clientDescriptors } from '../lib/remote-descriptors.mjs'
+import { createApprovalStore } from './approval-store.js'
+import { ApprovalBridgePanel } from './approval-panel.jsx'
 
 const PACKAGE_NAME = 'dsh-agent-tool-filter'
 const SLOT_KEY = `${PACKAGE_NAME}#agent-tool-filter`
@@ -15,6 +17,9 @@ let presetTranslate = undefined
 let localeFaceRef = undefined
 // Последний известный язык — для однострочного summary.
 let lastLanguage = 'auto'
+// Store висящих пакетов «моста апрува» (P3c): общий для apply (старт/тик) и
+// обёртки entry (перерисовка по подписке).
+const approvalStore = createApprovalStore()
 
 function messageOf (error) {
   return error instanceof Error ? error.message : String(error)
@@ -680,6 +685,11 @@ function AgentToolFilterCard ({ service }) {
     t('statusSaved'), 'header', applyStatus
   )
 
+  const setSubagentEscalation = next => runAction(
+    () => callRemote(service, 'setSubagentEscalation', next),
+    t('statusSaved'), 'header', applyStatus
+  )
+
   const changeLanguage = language => runAction(
     () => callRemote(service, 'setLanguage', language),
     t('statusSaved'), 'header', applyStatus
@@ -799,6 +809,18 @@ function AgentToolFilterCard ({ service }) {
         </div>
         <div className="atf-row">
           <div className="atf-row-text">
+            <span className="atf-row-label">{t('subagentEscalation')}</span>
+            <span className="atf-row-desc">{t('subagentEscalationDesc')}</span>
+          </div>
+          <Switch
+            checked={status?.subagentEscalation === true}
+            onChange={setSubagentEscalation}
+            label={t('subagentEscalation')}
+            disabled={status === null || busy}
+          />
+        </div>
+        <div className="atf-row">
+          <div className="atf-row-text">
             <span className="atf-row-label">
               {status === null ? t('notLoaded') : t('statusLine', { agents: agents.length, hidden: hiddenSchemas })}
             </span>
@@ -879,6 +901,46 @@ function SafeRowConfig (props) {
   }
 }
 
+// --- Панель «моста апрува» (P3c): entry в dock-слоте conversation.input.dock ---
+
+// Списочный dock-слот рендерит entry НАД штатным composer-баром (полная
+// ширина, до ввода) и бар НЕ вытесняет — в отличие от цепочки
+// conversation.composer, чей takeover прячет fallback (кейс 05: ввод и кнопка
+// Stop должны оставаться доступными, пока показана панель). Условие показа —
+// очередь ЭТОЙ сессии; select у списочных слотов не работает, поэтому
+// обёртка сама рендерит null при пустой очереди (перерисовка — её подписка
+// на store, «тик» для owner'а не нужен).
+
+// Ответ панели → remote-канал. Отказ НЕ глотаем: промис пробрасывается панели,
+// её failBack гасит hold (кнопки в строй) и логирует ошибку. service — третий
+// параметр с дефолтом serviceRef: onAnswer панели шлёт (requestId, decision),
+// сервис берётся из захваченного namespace.
+export function answerApprovalRequest (requestId, decision, service = serviceRef) {
+  return callRemote(service, 'answerApprovalRequest', requestId, decision)
+}
+
+// Обёртка entry: очередь ЭТОЙ сессии из store; перерисовка по подписке
+// (setState-обёртка — как у карточки). sessionId — из owner-пропса dock-слота
+// (InputZone.session); без сессии или при пустой очереди — пусто: в dock-е
+// это просто ничего не показывает, бар ввода не затрагивается.
+function ApprovalBridgeEntry ({ session }) {
+  const sessionId = session?.sessionId
+  const [requests, setRequests] = useState(
+    () => (sessionId === undefined ? [] : approvalStore.getForSession(sessionId))
+  )
+  useEffect(() => {
+    if (sessionId === undefined) {
+      setRequests([])
+      return undefined
+    }
+    const sync = () => setRequests(approvalStore.getForSession(sessionId))
+    sync() // кадр мог прийти между рендером и подпиской
+    return approvalStore.subscribe(sync)
+  }, [sessionId])
+  if (sessionId === undefined || requests.length === 0) return null
+  return <ApprovalBridgePanel requests={requests} onAnswer={answerApprovalRequest} />
+}
+
 export const inject = ['remote', 'slots']
 
 export function apply (ctx) {
@@ -911,6 +973,9 @@ export function apply (ctx) {
           }
         }
         serviceRef = ns
+        // Старт store «моста апрува» при доступном сервисе (старт идемпотентен;
+        // serviceRef меняется на лету — pump переподключится ретраем).
+        if (ns) approvalStore.start(() => serviceRef)
         console.info('dsh-agent-tool-filter: namespace captured:', ns ? 'ok' : 'missing')
         return () => {
           serviceRef = undefined
@@ -946,6 +1011,7 @@ export function apply (ctx) {
   ctx.effect(() => () => {
     cancelled = true
     void disposeRemote?.()
+    approvalStore.stop()
   }, 'dsh-agent-tool-filter: Remote contribution')
 
   ctx.slots.inject('plugins.row.config', () => {
@@ -954,4 +1020,17 @@ export function apply (ctx) {
       key: SLOT_KEY
     }, ({ view }) => <SafeRowConfig view={view} />)
   })
+
+  // Панель «моста апрува» (P3c): dock-слот conversation.input.dock (списочный,
+  // owner InputZone) — полоса НАД composer-баром: панель и бар ввода видны
+  // одновременно (кейс 05: штатный takeover цепочки conversation.composer
+  // прятал бы бар вместе с панелью). «Тик» не нужен: списочный entry не
+  // выбирается select'ом, а перерисовывается сам по подписке на store.
+  // order 30 — после штатных dock-entries (todo 0, queue 20): панель ближе
+  // к бару ввода.
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'approval-bridge',
+    order: 30
+  }, ApprovalBridgeEntry))
 }

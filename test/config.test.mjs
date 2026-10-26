@@ -68,6 +68,25 @@ test('normalizeConfig: неверный тип profiles/presets — ошибка
   assert.throws(() => normalizeConfig({ presets: 'all' }), /presets/)
 })
 
+test('normalizeConfig: зарезервированные ключи профилей отбрасываются с заметкой, прототип цел', () => {
+  const raw = JSON.parse('{"__proto__": {"mode": "deny", "tools": ["read"]}, "constructor": {"mode": "deny", "tools": ["read"]}, "prototype": {"mode": "deny", "tools": ["read"]}, "good": {"mode": "deny", "tools": ["read"]}}')
+  const cfg = normalizeConfig({ profiles: raw })
+  assert.equal(Object.hasOwn(cfg.profiles, '__proto__'), false)
+  assert.equal(Object.hasOwn(cfg.profiles, 'constructor'), false)
+  assert.equal(Object.hasOwn(cfg.profiles, 'prototype'), false)
+  assert.deepEqual(cfg.profiles.good.tools, ['read'])
+  assert.equal(Object.getPrototypeOf(cfg.profiles), Object.prototype, 'a __proto__ profile must not swap the prototype')
+  assert.equal(cfg.notes.length, 3)
+  assert.match(cfg.notes[0], /зарезервированное имя/)
+})
+
+test('normalizeConfig: связка на наследуемое имя прототипа (toString) — заметка, пропуск', () => {
+  const cfg = normalizeConfig({ presets: { cordis: 'toString', other: 'constructor' } })
+  assert.deepEqual(cfg.presets, {})
+  assert.equal(cfg.notes.length, 2)
+  assert.match(cfg.notes[0], /не найден/)
+})
+
 test('normalizeProfile: дефолтный режим deny', () => {
   const profile = normalizeProfile({ tools: ['web_search'] })
   assert.equal(profile.mode, 'deny')
@@ -106,6 +125,16 @@ test('normalizeConfig: debugLog — тумблер файловой диагно
 
 test('normalizeConfig: debugLog не-boolean — ошибка', () => {
   assert.throws(() => normalizeConfig({ debugLog: 'yes' }), /debugLog/)
+})
+
+test('normalizeConfig: subagentEscalation — тумблер расширенных прав субагентов, по умолчанию выкл', () => {
+  assert.equal(normalizeConfig({}).subagentEscalation, false)
+  assert.equal(normalizeConfig({ subagentEscalation: true }).subagentEscalation, true)
+  assert.equal(normalizeConfig({ subagentEscalation: false }).subagentEscalation, false)
+})
+
+test('normalizeConfig: subagentEscalation не-boolean — ошибка', () => {
+  assert.throws(() => normalizeConfig({ subagentEscalation: 'yes' }), /subagentEscalation/)
 })
 
 test('DEFAULT_PRESETS: дефолтная матрица пустая — установка ничего не фильтрует', () => {

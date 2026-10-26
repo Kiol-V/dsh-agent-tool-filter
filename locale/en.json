@@ -2,5 +2,9 @@
   "meta": {
     "title": "Agent Tool Filter",
     "description": "Shape the main agent’s tools per preset with a preset-to-profile matrix; subagents keep their full toolkit."
+  },
+  "settings": {
+    "subagentEscalation": "Subagent elevated permissions",
+    "subagentEscalationDesc": "Subagent permission escalation through user approval."
   }
 }

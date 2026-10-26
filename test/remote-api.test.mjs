@@ -34,12 +34,12 @@ assert.ok(ids.includes('dsh-agent-tool-filter#agentToolFilter/status'), `status 
 assert.ok(ids.includes('dsh-agent-tool-filter#agentToolFilter/importPack'), 'importPack invocation must be registered')
 assert.ok(ids.includes('dsh-agent-tool-filter#agentToolFilter/copyPreset'), 'copyPreset invocation must be registered')
 assert.ok(ids.includes('dsh-agent-tool-filter#agentToolFilter/deletePreset'), 'deletePreset invocation must be registered')
-assert.equal(contribution.invocations.length, 13, 'all 13 invocations must be registered')
+assert.equal(contribution.invocations.length, 17, 'all 17 invocations must be registered')
 
 assert.equal(provided.length, 1, 'service must be provided')
 assert.equal(provided[0].key, 'agentToolFilter')
 const service = provided[0].service
-for (const method of ['status', 'setEnabled', 'setDebugLog', 'setLanguage', 'bindPreset', 'unbindPreset', 'setProfile', 'removeToolName', 'deleteProfile', 'importPack', 'copyPreset', 'deletePreset', 'rescan']) {
+for (const method of ['status', 'setEnabled', 'setDebugLog', 'setSubagentEscalation', 'setLanguage', 'bindPreset', 'unbindPreset', 'setProfile', 'removeToolName', 'deleteProfile', 'importPack', 'copyPreset', 'deletePreset', 'rescan', 'listApprovalRequests', 'answerApprovalRequest', 'watchApprovalRequests']) {
   assert.equal(typeof service[method], 'function', `service must expose ${method}`)
 }
 assert.ok(service.typertRemote, 'service must carry the typertRemote binding')

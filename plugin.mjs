@@ -20,6 +20,7 @@ import { makeAgentFilter } from './lib/agent-filter.mjs'
 import { statusFull, scanTools } from './lib/diagnostics.mjs'
 import { scanGlobalTools, classifyProfileTools } from './lib/scan.mjs'
 import { clearRestriction } from './lib/restriction.mjs'
+import { createApprovalBridge } from './lib/approval-bridge.mjs'
 import { clientDescriptors } from './lib/remote-descriptors.mjs'
 import {
   bindPreset,
@@ -34,6 +35,7 @@ import {
   setEnabled,
   setLanguage,
   setProfile,
+  setSubagentEscalation,
   unbindPreset
 } from './lib/manage.mjs'
 
@@ -60,6 +62,7 @@ const remoteContribution = {
         { kind: 'method', name: 'status', signature: 'status(): object' },
         { kind: 'method', name: 'setEnabled', signature: 'setEnabled(enabled: boolean): Promise<object>' },
         { kind: 'method', name: 'setDebugLog', signature: 'setDebugLog(enabled: boolean): Promise<object>' },
+        { kind: 'method', name: 'setSubagentEscalation', signature: 'setSubagentEscalation(enabled: boolean): Promise<object>' },
         { kind: 'method', name: 'setLanguage', signature: 'setLanguage(language: string): Promise<object>' },
         { kind: 'method', name: 'bindPreset', signature: 'bindPreset(presetId: string, profileName: string): Promise<object>' },
         { kind: 'method', name: 'unbindPreset', signature: 'unbindPreset(presetId: string): Promise<object>' },
@@ -69,7 +72,10 @@ const remoteContribution = {
         { kind: 'method', name: 'importPack', signature: 'importPack(packId: string): Promise<object>' },
         { kind: 'method', name: 'copyPreset', signature: 'copyPreset(presetId: string, newName: string, display?: { name?: string, description?: string }): Promise<object>' },
         { kind: 'method', name: 'deletePreset', signature: 'deletePreset(presetId: string): Promise<object>' },
-        { kind: 'method', name: 'rescan', signature: 'rescan(): Promise<object>' }
+        { kind: 'method', name: 'rescan', signature: 'rescan(): Promise<object>' },
+        { kind: 'method', name: 'listApprovalRequests', signature: 'listApprovalRequests(): array' },
+        { kind: 'method', name: 'answerApprovalRequest', signature: 'answerApprovalRequest(requestId: string, decision: "allow" | "reject"): Promise<string>' },
+        { kind: 'method', name: 'watchApprovalRequests', signature: 'watchApprovalRequests(): stream<object>' }
       ],
       types: []
     }],
@@ -85,7 +91,14 @@ function makeTypertRemoteBinding (service, serviceKey) {
   return Object.freeze({ service, serviceKey, namespace: serviceKey })
 }
 
-export async function provideRemoteApi (ctx, cfg, log) {
+// Host-API «моста апрува» доступен только после создания моста в apply():
+// вызов provideRemoteApi() без моста (headless-проверки) получает явную ошибку.
+function requireApprovalBridge (bridge) {
+  if (!bridge) throw new Error('мост апрува недоступен (плагин не инициализирован)')
+  return bridge
+}
+
+export async function provideRemoteApi (ctx, cfg, log, approvalBridge) {
   // Опционально: каноничный binding из typert-protocol (если пакет резолвится).
   let bindTypertRemote
   try {
@@ -101,6 +114,7 @@ export async function provideRemoteApi (ctx, cfg, log) {
       scanTools: () => scanTools(cfg, ctx),
       setEnabled: enabled => setEnabled(ctx, enabled),
       setDebugLog: enabled => setDebugLog(ctx, enabled),
+      setSubagentEscalation: enabled => setSubagentEscalation(ctx, enabled),
       setLanguage: language => setLanguage(ctx, language),
       bindPreset: (presetId, profileName) => bindPreset(ctx, presetId, profileName),
       unbindPreset: presetId => unbindPreset(ctx, presetId),
@@ -110,7 +124,10 @@ export async function provideRemoteApi (ctx, cfg, log) {
       importPack: packId => importPack(ctx, packId),
       copyPreset: (presetId, newName, display) => copyPreset(ctx, presetId, newName, display),
       deletePreset: presetId => deletePreset(ctx, presetId),
-      rescan: () => rescan(ctx)
+      rescan: () => rescan(ctx),
+      listApprovalRequests: () => requireApprovalBridge(approvalBridge).listApprovalRequests(),
+      answerApprovalRequest: (requestId, decision) => requireApprovalBridge(approvalBridge).answerApprovalRequest(requestId, decision),
+      watchApprovalRequests: signal => requireApprovalBridge(approvalBridge).watchApprovalRequests(signal)
     }
     service.typertRemote = typeof bindTypertRemote === 'function'
       ? bindTypertRemote(service, 'agentToolFilter')
@@ -169,9 +186,14 @@ export async function apply (ctx, config) {
   const sourceByAgent = new WeakMap()
   const presetByAgent = new WeakMap()
   const { handle, rootsOf, disposeTimers } = makeAgentFilter(ctx, cfg, log, dlog, presetByAgent)
+  // Мост апрува создаётся один раз: листенеры читают тумблер subagentEscalation
+  // живьём (переключение без перезагрузки), sync() на каждом reapply снимает
+  // висящие карточки и холды при выключении тумблера, dispose() — при выгрузке.
+  let approvalBridge = null
   const reapply = () => {
     const roots = rootsOf()
     dlog('reapply', `roots ${roots === null ? 'null' : roots.length}`)
+    approvalBridge?.sync()
     if (roots === null) return
     for (const agent of roots) {
       if (cfg.enabled) handle(agent)
@@ -187,6 +209,7 @@ export async function apply (ctx, config) {
     },
     reapply
   })
+  approvalBridge = createApprovalBridge({ ctx, getConfig: () => cfg, log, dlog })
 
   if (!cfg.enabled) {
     log('info', 'agent-tool-filter: отключён конфигурацией (enabled: false)')
@@ -242,7 +265,7 @@ export async function apply (ctx, config) {
   if (typeof offReload === 'function') disposers.push(offReload)
 
   // Сервис host API и Remote binding для UI — оба опциональны в headless-средах.
-  await provideRemoteApi(ctx, cfg, log)
+  await provideRemoteApi(ctx, cfg, log, approvalBridge)
 
   if (cfg.enabled) {
     const bound = Object.entries(cfg.presets).map(([preset, profile]) => `${preset} → ${profile}`).join(', ')
@@ -258,6 +281,7 @@ export async function apply (ctx, config) {
   // Контракт v4 (K5): async apply возвращает disposer — подписки снимаются при
   // выгрузке плагина; маски живых агентов снимает clearRestriction по конфигу.
   return () => {
+    approvalBridge?.dispose()
     disposeTimers()
     for (const dispose of disposers) {
       try { dispose() } catch { /* подписка уже снята контекстом */ }

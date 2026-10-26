@@ -10,6 +10,14 @@ The plugin limits tools only for the **main agent** — the agent you interact w
 
 Important: this limits visibility or calls; it is not sandboxing or authorization. See [SECURITY.en.md](<../SECURITY.en.md>) for details.
 
+## Two features: tool restriction and elevated permissions
+
+The plugin ships two independent features: tool restriction for the main agent (filtering, the preset → profile matrix) and subagent elevated permissions (escalation, the “Subagent elevated permissions” toggle, `subagentEscalation`). Elevated permissions are off by default. The features do not depend on each other and run in three modes:
+
+- **tool restriction only** — the filter trims the main agent's tool set; subagents work with their own set and no escalation;
+- **elevated permissions only** — no filter is configured; a subagent that lacks a tool requests elevated access, and the user approves each call in the panel above the input box;
+- **both features** — restriction and escalation enabled at once: tools hidden from the main agent stay available to subagents, and when a subagent itself lacks a tool, the approval path engages.
+
 ## Step 0. Installation and first activation
 
 01. In Plugin Manager, run `plugin_manager` → `install_bundle` and select the package `.tgz` archive or the unpacked package directory. To update, install the latest version the same way. You do not need to edit the profile manually or unpack the package into a DSH folder.
@@ -27,7 +35,7 @@ While the matrix has no bindings, filtering is not applied to any preset.
 Open the plugin card in Plugin Manager → Configure:
 
 - The preset-to-profile matrix lists presets in two alphabetical groups: built-in and custom. Each preset can have one profile; one profile can be used by multiple presets.
-- The “Filtering enabled” toggle and status (agents with a mask, hidden schemas); the “File diagnostics” toggle turns the step-by-step filtering log on/off (the file path is shown in the Diagnostics block).
+- The “Filtering enabled” toggle and status (agents with a mask, hidden schemas); the “File diagnostics” toggle turns the step-by-step filtering log on/off (the file path is shown in the Diagnostics block); the “Subagent elevated permissions” toggle turns subagent permission escalation via user approval on/off.
 - In **Profiles**, create, edit, or copy a profile in a modal editor. The built-in `balanced` profile covers administrative tools; other profiles are user-created, and a custom profile named `balanced` overrides the built-in one. The editor groups enabled, disabled, and uncontrollable tools; problem names (typos, “the limiter rejects the mask”) get an active checkbox and a note — uncheck and save to remove the name from the profile.
 - Template packs provide starting points: **Gradient** (`strict`, `soft`), **Roles** (`focus`, `no-web`, `no-admin`, `minimal`), and **Layers** (`no-web`, `no-admin`, `no-dev-skills`).
 - The language selector supports Russian, English, or the application language. A temporary status appears under the section where an action was performed.
@@ -49,6 +57,7 @@ Configuration fields, if you configure them outside the card:
 | `debugLog` | `false` (default) — file diagnostics of the filtering steps; see the “File diagnostics” section. |
 | `profiles` | An object mapping profile names to `{ mode, tools }`. `mode: deny` disables the listed tools; `mode: allow` keeps only the listed tools. |
 | `presets` | An object mapping preset IDs to profile names. An empty object means no preset is filtered. |
+| `subagentEscalation` | `false` (default) — `true` lets subagents request elevated access with mandatory user approval; `false` — subagents run without escalation. |
 
 ⚠ **Risk of the `hide` mode:** pinned schema hiding does not protect against strict-provider
 errors — if the chat history still contains calls to hidden tools, turns may fail with

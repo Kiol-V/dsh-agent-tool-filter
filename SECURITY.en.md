@@ -45,6 +45,8 @@ Stated boundaries and limitations:
 - A filter-application error is logged and does not block DSH (fail-open). A configuration error disables the filter with a warning.
 - The plugin is installed in a DSH profile (`node_modules`). Create a backup of the profile before updating.
 - The visibility filter does not replace a sandbox for untrusted code.
+- **Subagent elevated permissions** (`subagentEscalation`, off by default): every privilege increase for a subagent requires explicit user approval. The approval panel discloses the exact action — the tool and its call arguments — before a permission is granted; a permission applies to exactly one call. Errors in the escalation mechanism fail closed: no permission is granted without a disclosed target action.
+- The approval panel isolates untrusted subagent text: Unicode control characters (bidi overrides, zero-width characters, and the like) are stripped from text fields, values render with visual isolation (`unicode-bidi: isolate`), and field lengths are capped.
 
 Normally trusted inputs:
 
@@ -55,6 +57,7 @@ Normally trusted inputs:
 Can be security issues:
 
 - Behavior where the plugin fails to restrict visibility of applicable main-agent tool schemas despite valid configuration.
+- Bypassing the escalation approval mechanism: granting a permission without an explicit user action, a permission that applies to more than one call, or hiding/distorting the target action in the approval panel.
 - Configuration handling or filter application that unexpectedly bypasses the stated visibility restriction.
 - Disclosure of secrets or personal data caused by the plugin's own behavior.
 

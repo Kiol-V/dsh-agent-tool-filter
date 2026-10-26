@@ -31,6 +31,7 @@ Restricting tools through a preset is not suitable here: preset tool lists are f
 - Copies presets with their descriptions (built-ins take DSH display texts; custom presets keep their own metadata).
 - Scans the installed tool palette («can be disabled / cannot be disabled» summary) and reports warnings with reasons.
 - Russian and English UI (language switcher, «Same as app» mode).
+- Subagent elevated permissions (since 1.1.0): the opt-in `subagentEscalation` toggle (off by default) lets a subagent request elevated access when it lacks a tool for its task. Every escalation requires explicit user approval in a panel above the input box, which discloses the action before granting: who is asking (the subagent's preset and assignment), the justification, the tool, and its exact call arguments. An approval grants exactly one call («Allow once»); rejection is a button or Esc. Parallel requests queue up until the user decides, each individually identified; mechanism errors fail closed (no approval without a disclosed action), and an interrupted subagent removes its request from the queue. The feature is independent of tool filtering: run tool restriction only, elevated permissions only, or both together.
 - Diagnostics block with technical data (remote mount, locale, version, counters).
 - File diagnostics: the `debugLog` toggle in plugin settings (off by default; changes apply immediately). The log is written to `<DSH_HOME>/logs/agent-tool-filter-debug.log`; `ATF_DEBUG_LOG=<path>` forces logging on with a custom file path.
 
@@ -44,16 +45,40 @@ Restricting tools through a preset is not suitable here: preset tool lists are f
 - A DeepSeek Harness installation with Plugin Manager access to install a bundle.
 - The package supplies a default bundle entry; configure preset mappings and profiles in its UI card.
 
-## Installation
+## Mechanics
 
-Install the release tarball or a package directory from Plugin Manager with `plugin_manager` →
-`install_bundle`, providing its path. For an npm package, obtain it in a location accessible to DSH
-and pass the package directory to `install_bundle`. The manager installs and selects the bundle;
-there is no need to edit the profile's `cordis.patch.yml` or unpack files into the profile by hand.
-Restart DSH if needed to complete first activation. The package has no dependencies; the host
-provides `@deepseek-ai/*` modules.
+01. On the `agent/created` event (listeners run before the first prompt build), the plugin
+    determines the **agent preset** (`agentPresets.composedPreset(agent.ctx)`) and picks the
+    filter profile from the "preset → profile" configuration matrix.
+02. The restriction is applied in the agent's own scope: `agent.ctx.tools.restrict(...)`.
+    **Only root agents** are filtered: in-process subagents join the parent's preset
+    (`composeFrom`) and show the same preset — without the `roots()` check the filter would
+    catch subagents too. SDK subagents live in a separate process and are not touched at all.
+03. `restrict()` masks intersect, so on a config change the old restrictions **are removed**
+    (disposers) and new ones are applied from scratch. State is stored on the agent itself and
+    survives plugin hot-reload.
+04. Own-scope registrations (own-layer and dynamic: `team_*`, `team_task_*`, `spawn_teammate`,
+    `wait_agent`, structured output, etc.) are not masked by `restrict()`.
 
-## Usage
+## Elevated permissions of subagents (since 1.1.0)
+
+Filtering restricts the main agent, while subagents work with their own tool set. If a
+subagent lacks a tool for its task, the "Elevated permissions of subagents" toggle
+(`subagentEscalation`, off by default) gives it a way to request elevated access from the user:
+
+- every escalation requires explicit approval — a panel appears above the input box in the
+  chat and discloses the action before granting: who is asking (the subagent's preset and
+  assignment), the justification, the operation (tool), and its call arguments;
+- an approval applies to exactly one call («Allow once»); rejection is a button or Esc;
+- several parallel requests queue up until the user decides, each individually identified;
+  mechanism errors fail closed (no approval is granted); an interrupted subagent removes its
+  request from the queue;
+- the feature is independent of tool filtering: run tool restriction only, elevated permissions
+  only, or both together.
+
+By default the toggle is off — subagents run without escalation.
+
+## Configuration
 
 Filtering is disabled until you configure a `preset → profile` mapping. The package supplies a bundle entry with safe defaults; configure mappings and profiles in the UI card. Changes apply hot (HMR). The example below shows the configuration shape:
 
@@ -66,6 +91,7 @@ Filtering is disabled until you configure a `preset → profile` mapping. The pa
         behavior: auto               # auto picks hide/block by history; hide or block pin the mode
         debugLog: false              # file diagnostics of the filtering steps
         language: auto               # plugin UI language: auto/ru/en
+        subagentEscalation: false    # let subagents request elevated access with mandatory user approval
         presets:                    # matrix "preset id → profile name"; empty = filter nothing
           cordis: cordis-trim
           standard: minimal-orchestrator
@@ -83,6 +109,7 @@ Filtering is disabled until you configure a `preset → profile` mapping. The pa
 | `presets` | empty | Maps preset IDs to profile names; nothing is filtered until a mapping is added |
 | `profiles` | built-in profiles | Defines profiles or overrides built-in profiles by name. In `deny` mode the listed tools are removed; in `allow` mode only the listed tools are retained |
 | `language` | `auto` | Plugin UI language: `auto` follows the app, or pin `ru` / `en` |
+| `subagentEscalation` | `false` | `true` lets subagents request elevated access with mandatory user approval; `false` (default) — subagents run without escalation |
 
 ⚠ **Risk of the `hide` mode:** pinned schema hiding does not protect against strict-provider
 errors — if the chat history still contains calls to hidden tools, turns may fail with
@@ -91,7 +118,7 @@ history on its own; pin `hide` only when the history is clean or your provider i
 
 See the [filtering guide](<docs/filtering-guide.en.md>) for the full setup, scan, verification, and rollback workflow.
 
-### Profiles and template packs
+## Profiles and template packs
 
 One universal profile is installed by default; the rest are added by importing template packs from the UI card.
 
@@ -104,25 +131,20 @@ One universal profile is installed by default; the rest are added by importing t
 
 Any profile can be copied and edited (custom tool lists, `deny`/`allow` mode); the built-in `balanced` can be overridden by name but not deleted.
 
-### What installation does
+## What installation does
 
-The package installs the plugin files and a bundle entry with safe defaults. On first activation, the plugin scans the installed DSH tools and compares profile names with the available set. Filtering remains disabled until you configure a `preset → profile` mapping in the UI card. Changes apply hot (HMR). See the [filtering guide](<docs/filtering-guide.en.md>) for details.
+The package **does not add** presets, tools, or third-party configuration — only the plugin
+files and a bundle entry with safe defaults. On first activation, the plugin scans the installed DSH tools and compares profile names with the available set. Filtering remains disabled until you configure a `preset → profile` mapping in the UI card. Changes apply hot (HMR). See the [filtering guide](<docs/filtering-guide.en.md>) for details.
 
-### Name validation and diagnostics
+## UI
+
+The settings UI card opens from the Plugin Manager: the `dsh-agent-tool-filter` row → Configure. It includes the enable toggle and status, the “File diagnostics” toggle (step-by-step filtering log; the file path is shown in the Diagnostics block), the “Subagent elevated permissions” toggle (since 1.1.0), a preset → profile matrix (default and custom blocks), profile editing in modal dialogs (three tool groups — enabled, managed, unmanaged; problem names — typos, “the limiter rejects the mask” — get an active checkbox with a note; uncheck and save to remove the name), template pack imports, a tool-palette scan summary with warnings (each “not found” warning offers a “Remove name from profile” button), a collapsed diagnostics block, and a Russian/English language switcher. Plugin Manager display metadata is available in English and Russian, with an original bundled icon.
+
+## Name validation and diagnostics
 
 At startup and when `agentToolFilter.scanTools()` is called, the plugin compares profile tool names with the global tool list. Unknown names and names that cannot be filtered are reported as warnings rather than silently ignored. `restrict()` also validates names when applying a profile; an unknown name does not prevent the other deny rules from applying.
 
 The plugin logs the number of tool schemas hidden by an applied filter. The host service `agentToolFilter.status()` exposes per-agent hidden-tool counts, and `scanTools()` reports actual tool names and warnings.
-
-### Reversibility and limitations
-
-Configuration and matrix changes are applied to live agents on a best-effort basis (hot-apply). The reliable paths are restarting DSH or recreating the chat (clear/resume): the agent scope is recreated and the filter is applied anew. The filter applies to agents created or resumed after the change.
-
-To remove a filter from a particular preset, remove its mapping from `presets`. Restrictions are disposed from the agent scope when they are removed.
-
-`tools.restrict()` controls tool visibility to the model and can reduce tool-schema overhead; it is not a security sandbox or a security guarantee. Tools registered in the plugin's own layer or dynamically — for example `team_*`, `team_task_*`, `spawn_teammate`, `wait_agent` — are not filtered by `restrict()`.
-
-The settings UI card opens from the Plugin Manager: the `dsh-agent-tool-filter` row → Configure. It includes the enable toggle and status, the “File diagnostics” toggle (step-by-step filtering log; the file path is shown in the Diagnostics block), a preset → profile matrix (default and custom blocks), profile editing in modal dialogs (problem names — typos, “the limiter rejects the mask” — get an active checkbox with a note; uncheck and save to remove the name), template pack imports, a tool-palette scan summary with warnings (each “not found” warning offers a “Remove name from profile” button), a collapsed diagnostics block, and a Russian/English language switcher. Plugin Manager display metadata is available in English and Russian, with an original bundled icon.
 
 ## Provider compatibility
 
@@ -140,15 +162,35 @@ The plugin chooses its working mode **automatically** — there are no separate 
 03. Guard → hide is reconsidered on mode re-evaluation: after compaction (since 1.0.1), on agent preset change, or on DSH restart. If the compaction summary mentions hidden names, the mode intentionally stays guard (conservative protection); hide comes once the history stops mentioning them.
 04. To observe diagnostics: the `debugLog` toggle in plugin settings or the `ATF_DEBUG_LOG` variable.
 
+## Reversibility and limitations
+
+Configuration and matrix changes are applied to live agents on a best-effort basis (hot-apply). The reliable paths are restarting DSH or recreating the chat (clear/resume): the agent scope is recreated and the filter is applied anew. The filter applies to agents created or resumed after the change.
+
+To remove a filter from a particular preset, remove its mapping from `presets`. Restrictions are disposed from the agent scope when they are removed.
+
+`tools.restrict()` controls tool visibility to the model and can reduce tool-schema overhead; it is not a security sandbox or a security guarantee. Tools registered in the plugin's own layer or dynamically — for example `team_*`, `team_task_*`, `spawn_teammate`, `wait_agent` — are not filtered by `restrict()`.
+
+## Installation
+
+Install the release tarball or a package directory from Plugin Manager with `plugin_manager` →
+`install_bundle`, providing its path. For an npm package, obtain it in a location accessible to DSH
+and pass the package directory to `install_bundle`. The manager installs and selects the bundle;
+there is no need to edit the profile's `cordis.patch.yml` or unpack files into the profile by hand.
+Restart DSH if needed to complete first activation. The package has no dependencies; the host
+provides `@deepseek-ai/*` modules.
+
 ## Repository structure
 
 | Directory / file | Purpose |
 |---|---|
 | `cordis.patch.yml` | Bundle patch with the plugin entry and safe defaults |
 | `lib/`, `client/`, `plugin.mjs` | Plugin sources (host and client) |
+| `locale/` | UI locales (RU/EN) |
+| `scripts/` | Client bundle build (`build.mjs`) |
 | `docs/` | Filtering guides (RU/EN) |
-| `test/` | Test scripts (`*.test.mjs`) and the [testing report](<test/TESTING.md>) |
+| `test/` | Test scripts (`*.test.mjs`) and the [testing report](<test/TESTING.en.md>) |
 | `README.md` / `README.en.md` | Russian / English project documentation |
+| `CONTRIBUTING.md` / `CONTRIBUTING.en.md` | Contribution guidelines (RU/EN) |
 | `LICENSE` / `LICENSE.en` | MIT license (RU / EN) |
 | `SECURITY.md` / `SECURITY.en.md` | Security policy (RU / EN) |
 
