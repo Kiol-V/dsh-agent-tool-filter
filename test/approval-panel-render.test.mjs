@@ -10,7 +10,6 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
@@ -29,7 +28,7 @@ const jsxRuntime = requireFromRepo('react/jsx-runtime')
 // платформенный бинарник (в т.ч. bin/esbuild у @esbuild/* на Linux), поэтому
 // путь вызова не зависит от ОС и раскладки нативных пакетов.
 const esbuildCli = path.join(REPO, 'node_modules', 'esbuild', 'bin', 'esbuild')
-const outfile = path.join(os.tmpdir(), `atf-approval-panel-${process.pid}.cjs`)
+const outfile = path.join(REPO, 'test', `.tmp-approval-panel-${process.pid}.cjs`)
 const build = spawnSync(process.execPath, [
   esbuildCli,
   path.join(REPO, 'client', 'approval-panel.jsx'),
@@ -42,11 +41,12 @@ const build = spawnSync(process.execPath, [
   '--external:react/jsx-runtime',
   '--legal-comments=none',
   `--outfile=${outfile}`
-], { cwd: REPO, stdio: 'ignore' })
+], { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] })
+const buildLog = `${build.stdout ?? ''}${build.stderr ?? ''}`.toString().trim()
 assert.equal(
   build.status,
   0,
-  `esbuild must compile client/approval-panel.jsx: ${build.error?.message ?? `status ${build.status}`}`
+  `esbuild must compile client/approval-panel.jsx: ${build.error?.message ?? `status ${build.status}`}${buildLog === '' ? '' : `\n${buildLog}`}`
 )
 
 const bundleSource = readFileSync(outfile, 'utf8')
