@@ -2,8 +2,9 @@
 // (client/approval-panel.jsx): один запрос (все поля и обе кнопки), очередь из
 // трёх (счётчик «1 из 3», переключение, порядок по createdAt), задание не
 // найдено и пустое обоснование, пустая очередь. JSX собирается esbuild-CLI
-// напрямую (как scripts/build.mjs: Node API esbuild требует pipes, недоступных
-// в песочнице), затем компонент рендерится через react-dom/server.
+// через JS-обёртку `node_modules/esbuild/bin/esbuild` (Node API esbuild
+// требует pipes, недоступных в песочнице), затем компонент рендерится через
+// react-dom/server.
 // Запуск: node test/approval-panel-render.test.mjs (из repo/).
 
 import { spawnSync } from 'node:child_process'
@@ -24,10 +25,13 @@ const jsxRuntime = requireFromRepo('react/jsx-runtime')
 
 // 1. Сборка компонента во временный CJS-бандл (react и jsx-runtime — externals,
 // карта require подменяется при загрузке, как в client-render.test.mjs).
-const executable = process.platform === 'win32' ? 'esbuild.exe' : 'esbuild'
-const binary = path.join(REPO, 'node_modules', '@esbuild', `${process.platform}-${process.arch}`, executable)
+// Вызов — через официальную JS-CLI-обёртку пакета esbuild: она сама находит
+// платформенный бинарник (в т.ч. bin/esbuild у @esbuild/* на Linux), поэтому
+// путь вызова не зависит от ОС и раскладки нативных пакетов.
+const esbuildCli = path.join(REPO, 'node_modules', 'esbuild', 'bin', 'esbuild')
 const outfile = path.join(os.tmpdir(), `atf-approval-panel-${process.pid}.cjs`)
-const build = spawnSync(binary, [
+const build = spawnSync(process.execPath, [
+  esbuildCli,
   path.join(REPO, 'client', 'approval-panel.jsx'),
   '--bundle',
   '--platform=browser',
