@@ -68,7 +68,8 @@ subagent lacks a tool for its task, the "Elevated permissions of subagents" togg
 
 - every escalation requires explicit approval — a panel appears above the input box in the
   chat and discloses the action before granting: who is asking (the subagent's preset and
-  assignment), the justification, the operation (tool), and its call arguments;
+  assignment), the justification, the operation (tool), and its call arguments; the panel
+  and its buttons follow the plugin UI language (Russian or English);
 - an approval applies to exactly one call («Allow once»); rejection is a button or Esc;
 - several parallel requests queue up until the user decides, each individually identified;
   mechanism errors fail closed (no approval is granted); an interrupted subagent removes its

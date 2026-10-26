@@ -13,6 +13,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+import { makeT } from '../lib/i18n.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.join(HERE, '..')
@@ -50,6 +51,11 @@ const build = nativeBin
   ? spawnSync(esbuildBin, esbuildArgs, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] })
   : spawnSync(process.execPath, [esbuildBin, ...esbuildArgs], { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] })
 const buildLog = `${build.stdout ?? ''}${build.stderr ?? ''}`.toString().trim()
+// Временный бандл удаляется на любом исходе — и при зелёном прогоне, и при
+// упавшем assert: обработчик exit срабатывает и на uncaught exception.
+process.on('exit', () => {
+  try { unlinkSync(outfile) } catch { /* файла может не быть */ }
+})
 assert.equal(
   build.status,
   0,
@@ -68,10 +74,13 @@ const { ApprovalBridgePanel } = moduleShim.exports
 assert.equal(typeof ApprovalBridgePanel, 'function', 'panel module must export ApprovalBridgePanel')
 
 // 2. Рендер-хелпер: SSR + снятие comment-маркеров между текстовыми узлами.
+// Подписи — через t (как в бою): RU-словарь из lib/i18n.mjs, проверки ниже
+// сверяются с русскими строками словаря.
 const flatOf = html => html.replaceAll('<!-- -->', '')
 const render = requests => flatOf(renderToString(React.createElement(ApprovalBridgePanel, {
   requests,
-  onAnswer: () => {}
+  onAnswer: () => {},
+  t: makeT('ru')
 })))
 
 const basePacket = (requestId, overrides = {}) => ({
@@ -105,6 +114,16 @@ assert.ok(single.includes('Нужен актуальный источник по
 assert.ok(single.includes('Разрешить (один раз)'), 'the allow-once button must render')
 assert.ok(single.includes('Отклонить'), 'the reject button must render')
 assert.ok(!single.includes('atf-ap-counter'), 'a single request must show no queue counter')
+
+// 3b. EN-словарь: панель локализуется обеими сторонами (паритет RU/EN).
+const singleEn = flatOf(renderToString(React.createElement(ApprovalBridgePanel, {
+  requests: [basePacket('approval-en')],
+  onAnswer: () => {},
+  t: makeT('en')
+})))
+assert.ok(singleEn.includes('Allow (once)'), 'the en dictionary must render the allow-once button')
+assert.ok(singleEn.includes('Reject'), 'the en dictionary must render the reject button')
+assert.ok(singleEn.includes('Awaiting approval'), 'the en dictionary must render the strip title')
 
 // 4. Три запроса: порядок по createdAt, счётчик «1 из 3», переключение ‹ ›.
 const three = render([

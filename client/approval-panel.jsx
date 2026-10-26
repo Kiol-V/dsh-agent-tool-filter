@@ -10,7 +10,8 @@
 // Props: requests — пакеты ОДНОЙ сессии; очередь сортируется по createdAt,
 // показывается текущий запрос, счётчик «k из N» (N > 1) и переключение ‹ ›.
 // onAnswer(requestId, decision) — decision 'allow' | 'reject'. От store/remote
-// компонент не зависит: только props.
+// компонент не зависит: только props. t — функция перевода из lib/i18n.mjs
+// (передаёт обёртка ApprovalBridgeEntry, как карточке настроек).
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 // Стили карточки — в духе ApprovalPanel.module.css штатного пакета: токены
@@ -100,7 +101,7 @@ const ARG_LINE_LIMIT = 2000
 // «кто / обоснование / что / задание» (задание — последним блоком: при большом
 // задании суть запроса не нужно прокручивать) и ответом через onAnswer
 // (как штатный approval).
-export function ApprovalBridgePanel ({ requests, onAnswer }) {
+export function ApprovalBridgePanel ({ requests, onAnswer, t }) {
   const queue = useMemo(
     () => [...(Array.isArray(requests) ? requests : [])].sort(byCreatedAt),
     [requests]
@@ -195,9 +196,9 @@ export function ApprovalBridgePanel ({ requests, onAnswer }) {
   // Задание не выдумывается: found=false или пустой текст — честная заглушка.
   const hasAssignment = agent.assignmentFound !== false
     && typeof agent.assignment === 'string' && agent.assignment.trim() !== ''
-  const assignmentText = hasAssignment ? capText(cleanText(agent.assignment), FIELD_LIMIT) : 'Задание не установлено'
+  const assignmentText = hasAssignment ? capText(cleanText(agent.assignment), FIELD_LIMIT) : t('approvalAssignmentMissing')
   const hasJustification = typeof current.justification === 'string' && current.justification.trim() !== ''
-  const justificationText = hasJustification ? capText(cleanText(current.justification), FIELD_LIMIT) : 'без обоснования'
+  const justificationText = hasJustification ? capText(cleanText(current.justification), FIELD_LIMIT) : t('approvalNoJustification')
   const argLines = formatArguments(action.arguments).map(line => capText(cleanText(line), ARG_LINE_LIMIT))
 
   return (
@@ -205,16 +206,16 @@ export function ApprovalBridgePanel ({ requests, onAnswer }) {
       <div className="atf-ap-card" data-request-id={current.requestId} aria-busy={answered} onKeyDown={keydown}>
         <div className="atf-ap-strip">
           <span className="atf-ap-dot" aria-hidden="true" />
-          <span>Ожидает разрешения</span>
+          <span>{t('approvalPending')}</span>
           {queue.length > 1 && (
             <span className="atf-ap-queue">
-              <span className="atf-ap-counter">{position + 1} из {queue.length}</span>
-              <button type="button" className="atf-ap-step" aria-label="Предыдущий запрос" onClick={() => step(-1)}>‹</button>
-              <button type="button" className="atf-ap-step" aria-label="Следующий запрос" onClick={() => step(1)}>›</button>
+              <span className="atf-ap-counter">{t('approvalCounter', { k: position + 1, n: queue.length })}</span>
+              <button type="button" className="atf-ap-step" aria-label={t('approvalPrevRequest')} onClick={() => step(-1)}>‹</button>
+              <button type="button" className="atf-ap-step" aria-label={t('approvalNextRequest')} onClick={() => step(1)}>›</button>
             </span>
           )}
         </div>
-        <div className="atf-ap-body" tabIndex={0} role="group" aria-label="Детали запроса на разрешение" autoFocus>
+        <div className="atf-ap-body" tabIndex={0} role="group" aria-label={t('approvalDetails')} autoFocus>
           <div className="atf-ap-head">
             <code className="atf-ap-chip">{preset}</code>
             <span className="atf-ap-sep">·</span>
@@ -222,24 +223,24 @@ export function ApprovalBridgePanel ({ requests, onAnswer }) {
             <span className="atf-ap-sep">·</span>
             <code className="atf-ap-chip">{toolName}</code>
           </div>
-          <div className="atf-ap-id">Запрос: <code>{requestIdText}</code></div>
+          <div className="atf-ap-id">{t('approvalRequest')} <code>{requestIdText}</code></div>
 
           <div className="atf-ap-sec">
-            <div className="atf-ap-sec-title">Кто запросил</div>
-            <div className="atf-ap-kv"><span className="atf-ap-k">Пресет</span><code className="atf-ap-code">{preset}</code></div>
-            <div className="atf-ap-kv"><span className="atf-ap-k">Сессия</span><code className="atf-ap-code">{shortSessionId}</code></div>
+            <div className="atf-ap-sec-title">{t('approvalWho')}</div>
+            <div className="atf-ap-kv"><span className="atf-ap-k">{t('approvalPreset')}</span><code className="atf-ap-code">{preset}</code></div>
+            <div className="atf-ap-kv"><span className="atf-ap-k">{t('approvalSession')}</span><code className="atf-ap-code">{shortSessionId}</code></div>
           </div>
 
           <div className="atf-ap-sec">
-            <div className="atf-ap-sec-title">Обоснование</div>
+            <div className="atf-ap-sec-title">{t('approvalJustification')}</div>
             <div className={`atf-ap-v${hasJustification ? '' : ' atf-ap-muted'}`}>{justificationText}</div>
           </div>
 
           <div className="atf-ap-sec">
-            <div className="atf-ap-sec-title">Что запрошено</div>
-            <div className="atf-ap-kv"><span className="atf-ap-k">Операция</span><code className="atf-ap-code">{toolName}</code></div>
+            <div className="atf-ap-sec-title">{t('approvalWhat')}</div>
+            <div className="atf-ap-kv"><span className="atf-ap-k">{t('approvalOperation')}</span><code className="atf-ap-code">{toolName}</code></div>
             <div className="atf-ap-kv atf-ap-col">
-              <span className="atf-ap-k">Целевое действие</span>
+              <span className="atf-ap-k">{t('approvalTargetAction')}</span>
               <div className="atf-ap-args">
                 {argLines.map((line, lineIndex) => (
                   <div
@@ -254,16 +255,16 @@ export function ApprovalBridgePanel ({ requests, onAnswer }) {
           </div>
 
           <div className="atf-ap-sec">
-            <div className="atf-ap-sec-title">Задание субагента</div>
+            <div className="atf-ap-sec-title">{t('approvalAssignmentTitle')}</div>
             <div className={`atf-ap-v${hasAssignment ? '' : ' atf-ap-muted'}`}>{assignmentText}</div>
           </div>
         </div>
         <div className="atf-ap-actions">
           <button type="button" className="atf-btn atf-outline atf-ap-reject" disabled={answered} onClick={() => answer('reject')}>
-            Отклонить
+            {t('approvalReject')}
           </button>
           <button type="button" className="atf-btn atf-primary" disabled={answered} onClick={() => answer('allow')}>
-            Разрешить (один раз)
+            {t('approvalAllowOnce')}
           </button>
         </div>
       </div>

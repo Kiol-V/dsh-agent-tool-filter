@@ -24,7 +24,7 @@ Canonical run: `node --test test/` from the `repo/` directory. Each module is al
 | `scan.test.mjs` | DSH palette scanning, tool classification (can / cannot be disabled) |
 | `remote-api.test.mjs` | Typert Remote registration (404 regression), service contract |
 | `remote-descriptors.test.mjs` | call descriptors, strict codecs, optional parameters |
-| `i18n.test.mjs` | RU/EN dictionaries, language resolution, `language` validation |
+| `i18n.test.mjs` | RU/EN dictionaries (including parity of the 18 approval-panel keys), language resolution, `language` validation |
 | `preset-display.test.mjs` | preset display texts: the DSH dictionary, published metadata, fallbacks |
 | `client-render.test.mjs` | UI card rendering: sections, modals, warnings with the «Remove name» button, localization (SSR smoke) |
 | `debug-fallback.test.mjs` | file diagnostics: `ATF_DEBUG_LOG` env override, `<DSH_HOME>/logs/` default, `resolveLogPath` |
@@ -32,7 +32,7 @@ Canonical run: `node --test test/` from the `repo/` directory. Each module is al
 | `display-assets.test.mjs` | display assets (icon, locales) |
 | `approval-bridge.test.mjs` | approval bridge semantics: allow-once, rejection, fail-closed, cancellation, binding arguments to the session |
 | `approval-store.test.mjs` | client-side store of approval requests |
-| `approval-panel-render.test.mjs` | approval panel rendering: queue, placeholders, filtering of Unicode control characters, text limits |
+| `approval-panel-render.test.mjs` | approval panel rendering: queue, placeholders, filtering of Unicode control characters, text limits, RU/EN localization |
 
 ### Additional tooling
 
@@ -45,7 +45,7 @@ Canonical run: `node --test test/` from the `repo/` directory. Each module is al
 - **Unit tests:** 19 modules — 162 checks + 7 summary modules, all green.
 - **YAML validation** of `cordis.patch.yml` (`verify-yaml.mjs`) — OK.
 - **`test_drive`** on the release tarball — PASS: install, patch, boot, uninstall confirmed.
-- **Acceptance** (2026-10-26, release 1.1.0): manual run — 2 iterations: a single escalation with approval; rejection (button and Esc); three parallel requests; behavior when the main agent stops — the panel waits for the user's decision; toggle off — no escalations. Security audit: no critical or high findings.
+- **Acceptance** (2026-10-26, release 1.1.1): automated tests — 19 modules green (162 checks + 7 summary modules); approval-panel localization RU/EN — the UI language dictionary, dictionary parity and both render sides covered by tests; cross-platform esbuild invocation in the render test and the build. The 1.1.0 approval mechanics (accepted 2026-10-26): a single escalation with approval; rejection (button and Esc); three parallel requests; behavior when the main agent stops — the panel waits for the user's decision; toggle off — no escalations. Security audit: no critical or high findings.
 
 ## 3. Post-installation check
 

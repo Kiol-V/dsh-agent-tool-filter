@@ -4,6 +4,8 @@
 // Язык UI по умолчанию — en (resolveLang без локали платформы); RU проверяется явно.
 // P3c: обёртка dock-слота conversation.input.dock — очередь по store (пустая →
 // пусто, непустая → панель видна) и onAnswer → remote-канал.
+// Смок локализации (1.1.1): панель через обёртку следует полю language конфига
+// ('en' в status), а не локали платформы ('ru' в смоуке).
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -65,10 +67,15 @@ const approvalPacket = {
 }
 const answerCalls = []
 const streamState = { aborted: false }
+// Локаль платформы — переключаемая (смоук языка панели 1.1.1): 'ru' доказывает,
+// что панель берёт поле language конфига, а не локаль платформы.
+const fakeLocale = { active: undefined, getSnapshot: () => ({ active: fakeLocale.active }) }
 const fakeNs = {
+  // language:'en' — seed языка панели через status-вызов apply (смок 1.1.1):
+  // панель должна рендерить EN, несмотря на локаль платформы 'ru' в смоуке.
   status: async () => ({
     ok: true,
-    value: { enabled: true, language: 'auto', agents: [], presets: {}, profiles: {}, presetIds: [], tools: [], warnings: [] }
+    value: { enabled: true, language: 'en', agents: [], presets: {}, profiles: {}, presetIds: [], tools: [], warnings: [] }
   }),
   answerApprovalRequest: async (requestId, decision) => {
     answerCalls.push(['ns', requestId, decision])
@@ -86,6 +93,7 @@ const fakeNs = {
   })()
 }
 const fakeCtx = {
+  locale: fakeLocale,
   remote: {
     $mount: (contribution) => {
       calls.mount++
@@ -150,15 +158,29 @@ await new Promise(resolve => setTimeout(resolve, 0))
 
 // P3c: store получил snapshot — обёртка рендерит панель для СВОЕЙ сессии
 // (owner-пропс dock-слота InputZone.session), чужую сессию и отсутствие
-// сессии не берёт.
+// сессии не берёт. Подписи панели идут через t обёртки; язык по умолчанию —
+// en (resolveLang без локали платформы), как у карточки выше.
 const approvalHtml = renderToString(React.createElement(approvalEntryReg.component, { session: { sessionId: 'root-00000001' } }))
 const approvalFlat = approvalHtml.replaceAll('<!-- -->', '')
-assert.ok(approvalFlat.includes('Разрешить (один раз)'), `wrapper must render the panel with a queued packet, got: ${approvalHtml.slice(0, 300)}`)
+assert.ok(approvalFlat.includes('Allow (once)'), `wrapper must render the localized panel with a queued packet, got: ${approvalHtml.slice(0, 300)}`)
 assert.ok(approvalFlat.includes('wolf-websearcher'), 'panel must show the requesting preset')
 const ghostHtml = renderToString(React.createElement(approvalEntryReg.component, { session: { sessionId: 'root-00000002' } }))
 assert.equal(ghostHtml, '', 'wrapper must render nothing for a session without packets')
 const noSessionHtml = renderToString(React.createElement(approvalEntryReg.component, { session: undefined }))
 assert.equal(noSessionHtml, '', 'wrapper must render nothing without a session')
+
+// 2c. Смок локализации панели (смок 1.1.1): поле language конфига — 'en'
+// (seed status-вызова apply), локаль платформы — 'ru'. Панель через обёртку
+// рендерит EN-строки, RU-строк нет. До фикса обёртка брала lastLanguage='auto'
+// (карточка статус ещё не загружала) + локаль платформы → была бы RU-панель.
+fakeLocale.active = 'ru'
+const langFlat = renderToString(React.createElement(approvalEntryReg.component, { session: { sessionId: 'root-00000001' } }))
+  .replaceAll('<!-- -->', '')
+assert.ok(langFlat.includes('Allow (once)'), `wrapper must follow language=en from the config, not the ru platform locale, got: ${langFlat.slice(0, 300)}`)
+assert.ok(langFlat.includes('Awaiting approval'), 'the panel strip title must render in en')
+assert.ok(!langFlat.includes('Разрешить'), 'no ru allow label while language=en')
+assert.ok(!langFlat.includes('Отклонить'), 'no ru reject label while language=en')
+fakeLocale.active = undefined // карточка ниже рендерится в SSR без status — её резолв остаётся без локали
 
 // onAnswer → answerApprovalRequest с верными аргументами (мок-сервис в параметре).
 await plugin.answerApprovalRequest('approval-req-1', 'allow', { answerApprovalRequest: async (...args) => { answerCalls.push(['mock', ...args]); return { ok: true, value: 'allowed-once' } } })

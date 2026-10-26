@@ -15,8 +15,29 @@ let remoteMounted = false
 let presetTranslate = undefined
 // locale-фейс платформы: активная локаль (для режима языка «Как в приложении»).
 let localeFaceRef = undefined
-// Последний известный язык — для однострочного summary.
+// Последний известный язык конфига (поле language) — общий источник карточки
+// настроек, summary и панели апрува (смок 1.1.1: панель раньше следовала
+// только локали платформы и не перерисовывалась при смене языка).
 let lastLanguage = 'auto'
+const langListeners = new Set()
+
+// Публикация смены языка: значение + уведомление подписчиков синхронно.
+// Вызывается из эффекта карточки и из apply (seed) — НИКОГДА из рендера
+// (setState чужого компонента прямо из рендера React запрещает).
+function publishLanguage (language) {
+  if (language === lastLanguage) return
+  lastLanguage = language
+  for (const listener of [...langListeners]) {
+    try { listener() } catch { /* подписчик не должен ронять публикацию */ }
+  }
+}
+
+// Подписка на смену языка (горячая перерисовка панели); возвращает отписку.
+function subscribeLanguage (listener) {
+  langListeners.add(listener)
+  return () => { langListeners.delete(listener) }
+}
+
 // Store висящих пакетов «моста апрува» (P3c): общий для apply (старт/тик) и
 // обёртки entry (перерисовка по подписке).
 const approvalStore = createApprovalStore()
@@ -665,8 +686,13 @@ function AgentToolFilterCard ({ service }) {
 
   // Язык UI: явный ru/en из конфига, иначе активная локаль платформы (§8 спеки).
   const langSetting = status?.language ?? 'auto'
-  lastLanguage = langSetting
   const t = makeT(resolveLang(langSetting, platformLang()))
+  // Публикация языка панели апрува и summary — эффектом после коммита, только
+  // по ЗАГРУЖЕННОМУ конфигу: status===null (первая отрисовка) язык не трогает
+  // (seed apply уже дал поле language; смок 1.1.1).
+  useEffect(() => {
+    if (status?.language !== undefined) publishLanguage(status.language)
+  }, [status])
 
   const refresh = () => runAction(
     () => callRemote(service, 'status'),
@@ -925,6 +951,16 @@ export function answerApprovalRequest (requestId, decision, service = serviceRef
 // это просто ничего не показывает, бар ввода не затрагивается.
 function ApprovalBridgeEntry ({ session }) {
   const sessionId = session?.sessionId
+  // Язык — тем же механизмом, что карточка настроек: поле language конфига
+  // (lastLanguage: публикуется карточкой и status-вызовом apply) + локаль
+  // платформы; перерисовка при смене языка — по подписке (как у store очереди).
+  const [language, setLanguage] = useState(lastLanguage)
+  useEffect(() => {
+    const sync = () => setLanguage(lastLanguage)
+    sync() // смена могла пройти между рендером и подпиской
+    return subscribeLanguage(sync)
+  }, [])
+  const t = makeT(resolveLang(language, platformLang()))
   const [requests, setRequests] = useState(
     () => (sessionId === undefined ? [] : approvalStore.getForSession(sessionId))
   )
@@ -938,7 +974,7 @@ function ApprovalBridgeEntry ({ session }) {
     return approvalStore.subscribe(sync)
   }, [sessionId])
   if (sessionId === undefined || requests.length === 0) return null
-  return <ApprovalBridgePanel requests={requests} onAnswer={answerApprovalRequest} />
+  return <ApprovalBridgePanel requests={requests} onAnswer={answerApprovalRequest} t={t} />
 }
 
 export const inject = ['remote', 'slots']
@@ -975,7 +1011,15 @@ export function apply (ctx) {
         serviceRef = ns
         // Старт store «моста апрува» при доступном сервисе (старт идемпотентен;
         // serviceRef меняется на лету — pump переподключится ретраем).
-        if (ns) approvalStore.start(() => serviceRef)
+        if (ns) {
+          approvalStore.start(() => serviceRef)
+          // Язык панели апрува — поле language конфига СРАЗУ при захвате
+          // сервиса, без ожидания открытия карточки настроек (смок 1.1.1:
+          // после перезапуска панель держалась локали платформы).
+          void callRemote(ns, 'status')
+            .then(status => publishLanguage(status?.language ?? 'auto'))
+            .catch(() => { /* сервис/статус недоступен — язык догонит карточка */ })
+        }
         console.info('dsh-agent-tool-filter: namespace captured:', ns ? 'ok' : 'missing')
         return () => {
           serviceRef = undefined

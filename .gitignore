@@ -6,6 +6,9 @@ dist/
 # Worktree-потоки (N0027)
 .agents/
 
+# Временные артефакты тестов
+.tmp-*
+
 # Системный мусор
 .DS_Store
 Thumbs.db

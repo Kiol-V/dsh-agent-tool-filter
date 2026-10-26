@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-tool-filter",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Per-agent tool filter for the main agent (orchestrator): restricts tools per preset via ctx.tools.restrict() in the root Agent scope on agent/created. Preset-to-profile matrix, filter profiles, name validation, hidden-schema diagnostics. Subagents keep the full toolset.",
   "icon": "./icon.svg",
   "type": "module",
