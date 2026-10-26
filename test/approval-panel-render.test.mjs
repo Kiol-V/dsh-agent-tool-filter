@@ -8,7 +8,7 @@
 // Запуск: node test/approval-panel-render.test.mjs (из repo/).
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync, unlinkSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, readSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,13 +24,17 @@ const jsxRuntime = requireFromRepo('react/jsx-runtime')
 
 // 1. Сборка компонента во временный CJS-бандл (react и jsx-runtime — externals,
 // карта require подменяется при загрузке, как в client-render.test.mjs).
-// Вызов — через официальную JS-CLI-обёртку пакета esbuild: она сама находит
-// платформенный бинарник (в т.ч. bin/esbuild у @esbuild/* на Linux), поэтому
-// путь вызова не зависит от ОС и раскладки нативных пакетов.
-const esbuildCli = path.join(REPO, 'node_modules', 'esbuild', 'bin', 'esbuild')
+// Вызов кроссплатформенный: на Linux установщик esbuild кладёт в bin/esbuild
+// нативный бинарник (запускается напрямую), на Windows там JS-обёртка (через
+// node); тип определяется по магическим байтам файла (ELF 0x7F 'E' / MZ 'M').
+const esbuildBin = path.join(REPO, 'node_modules', 'esbuild', 'bin', 'esbuild')
+const binFd = openSync(esbuildBin, 'r')
+const binHead = Buffer.alloc(4)
+readSync(binFd, binHead, 0, 4, 0)
+closeSync(binFd)
+const nativeBin = binHead[0] === 0x7f || binHead[0] === 0x4d
 const outfile = path.join(REPO, 'test', `.tmp-approval-panel-${process.pid}.cjs`)
-const build = spawnSync(process.execPath, [
-  esbuildCli,
+const esbuildArgs = [
   path.join(REPO, 'client', 'approval-panel.jsx'),
   '--bundle',
   '--platform=browser',
@@ -41,7 +45,10 @@ const build = spawnSync(process.execPath, [
   '--external:react/jsx-runtime',
   '--legal-comments=none',
   `--outfile=${outfile}`
-], { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] })
+]
+const build = nativeBin
+  ? spawnSync(esbuildBin, esbuildArgs, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] })
+  : spawnSync(process.execPath, [esbuildBin, ...esbuildArgs], { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] })
 const buildLog = `${build.stdout ?? ''}${build.stderr ?? ''}`.toString().trim()
 assert.equal(
   build.status,
